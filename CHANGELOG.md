@@ -21,6 +21,85 @@ Entries are tagged with the scope they affect:
 
 ## [Unreleased]
 
+### Added — 2026-05-25 session
+
+- **security:** full internal security audit of the workspace (27,189
+  LOC Rust + 7,103 LOC TS, 765 crate dependencies). Report published
+  as `SECURITY-AUDIT.md`. 4 CVEs detected → 3 closed → 1 accepted-risk
+  documented. 10 patches landed across the workspace.
+- **docs:** project-wide threat model (`THREAT-MODEL.md`) covering
+  threat actors T1-T4, assets in three tiers, what the project
+  resists, what it does NOT resist (GPA, endpoint compromise, forced
+  disclosure), known implementation gaps, and the conditions for the
+  "production-ready" claim.
+- **docs:** `LICENSE-COMMERCIAL.md` describing the commercial license
+  track honestly — no pricing, no signed licensees, conditions under
+  which a price list will be published.
+- **docs:** `README.md` rewritten as a documentation index, with
+  explicit conditions under which the source repository will open to
+  the community (four-track 100% + third-party audit + production
+  relay ≥ 90 days + coverage ≥ 80%).
+- **store:** `MAX_FILE_TRANSFER_CHUNKS = 50_000` cap on
+  `init_file_transfer` and `chunk_index < total_chunks` validation in
+  `save_file_chunk`; closes the H-1 DoS finding where a peer could
+  send `total_chunks = u32::MAX`.
+- **server:** `Semaphore` cap at 10,000 concurrent connections + per-IP
+  rate limit applied before the Noise XX handshake; closes the H-2
+  finding where the rate limiter only triggered after the expensive
+  DH operation.
+- **server:** rate-limiter `DashMap` capped at 100,000 buckets; closes
+  the M-7 IPv6-spray amplification.
+- **server:** SCIM logs hash `user_name` via SHA-256 before writing;
+  closes the M-8 PII-in-logs finding.
+- **agent:** ratchet `skipped_keys` switched from `HashMap` to
+  `VecDeque` with FIFO eviction (closes M-2 non-deterministic
+  eviction) and manual `Drop` zeroizes message keys before the
+  allocator releases them (closes M-3 swap-leak).
+- **enterprise:** Ed25519 license verification switched from `verify`
+  to `verify_strict` (closes M-4 malleability).
+- **tauri:** CSP hardened with `object-src 'none'; frame-ancestors
+  'none'; base-uri 'self'; form-action 'none'` (closes M-6).
+- **tests:** C2 — six cross-crate integration tests in
+  `crypto-tests/tests/server_integration.rs` driving a real `SmpServer`
+  in-process on an ephemeral port (Noise handshake, queue creation,
+  send/get round-trip, empty-queue None, MAX_MSG_SIZE enforcement,
+  multi-sender model).
+- **tests:** C7 — Vitest + @testing-library/react + jsdom configured
+  for the Tauri frontend; 22 unit / snapshot tests in `App.test.tsx`
+  covering `renderMarkdown`, `PresenceDot`, `EmojiPicker`,
+  `FileDisplay`, and `getRtcConfig`. Tauri IPC modules mocked in
+  `src/test-setup.ts`.
+
+### Changed — 2026-05-25 session
+
+- **enterprise:** `openidconnect` 3.5 → 4.0.1 (and transitively
+  `oauth2` 5.0, `reqwest` 0.12, `rustls` 0.23, `rustls-webpki` 0.103).
+  Closes **RUSTSEC-2026-0098**, **RUSTSEC-2026-0099**, and
+  **RUSTSEC-2026-0104**. The SSO code path was refactored to match
+  the new typestate API (`EndpointSet`/`EndpointMaybeSet`/
+  `EndpointNotSet`) and the new explicit HTTP client.
+- **LICENSE:** replaced the stub MIT text with the project's actual
+  dual licence (`AGPL-3.0-or-later OR LicenseRef-Crypto-Commercial`).
+  The MIT line was an artefact of an early scaffolding template and
+  contradicted every SPDX header in the source tree.
+- **SECURITY.md:** post-audit revision — three rustls-webpki CVEs
+  marked closed (commit `75c0d57`), `rsa` 0.9.10 Marvin Attack
+  documented as accepted-risk with mitigation chain.
+
+### Security — 2026-05-25 session
+
+- **agent / store / server / tauri / enterprise:** 10 hardening
+  patches landed in commit `75c0d57`. See `SECURITY-AUDIT.md` for the
+  full mapping of finding → file → patch.
+- **enterprise:** one upstream CVE remains accepted —
+  RUSTSEC-2023-0071 (rsa 0.9.10 Marvin Attack). No upstream fix
+  available; mitigation documented in `SECURITY.md` and
+  `THREAT-MODEL.md` § 6.8.
+
+---
+
+## [Unreleased — earlier]
+
 ### Added
 
 - **docs:** project governance document (`GOVERNANCE.md`).

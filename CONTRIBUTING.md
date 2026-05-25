@@ -60,6 +60,12 @@ We do NOT accept (without prior maintainer agreement):
 
 ### First build
 
+> **Heads-up:** The source repository is currently private during the
+> build-out phase (see [README.md](README.md) for the conditions under
+> which it will open). The instructions below describe the workflow
+> that will apply **once the repository is public**. Until then, this
+> section is forward-documentation.
+
 ```bash
 git clone https://github.com/0x9Angel/Crypto.git
 cd Crypto
@@ -161,9 +167,16 @@ only.
 7. **Respond to review** promptly; rebase rather than merge `main`
    into your branch to keep history linear.
 
-### CI gates
+### CI gates (planned)
 
-A PR cannot merge until:
+> **Status:** the GitHub Actions workflows that enforce these gates
+> **do not yet exist**. The checks below describe the policy the
+> maintainers run manually before every release tag. Automation is
+> tracked as roadmap item 4.1.6 in [`CHECKLIST.md`](CHECKLIST.md).
+>
+> Until CI lands, run the checks locally before submitting a PR.
+
+Once CI is wired, a PR will not merge until:
 
 - `cargo fmt --check` passes (no formatting drift).
 - `cargo clippy -- -D warnings` passes (zero warnings).
@@ -222,7 +235,9 @@ greater. Concretely:
 - New cross-crate seam → an integration test in
   `crypto-gotham-relay/tests/` or `crypto-tests/tests/`.
 - New error path → a test that exercises it.
-- Fuzz-friendly parser → a fuzz target under `crypto-gotham/fuzz/`.
+- Fuzz-friendly parser → a fuzz target under `crypto-gotham/fuzz/`
+  (currently maintained on the `gotham-v0.2` branch; will move to
+  `main` once track 4.2.1 in [`CHECKLIST.md`](CHECKLIST.md) closes).
 
 Run the relevant subset locally before pushing:
 
