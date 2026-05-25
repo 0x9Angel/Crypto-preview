@@ -134,12 +134,6 @@ independently usable by any other application — not only by Crypto.
 | [`GOTHAM-USERGUIDE.md`](GOTHAM-USERGUIDE.md) | End-user-facing documentation of what Gotham does and does not do, written without protocol jargon. For Crypto users curious about what the mixnet actually buys them. |
 | [`GOTHAM-DOSSIER.md`](GOTHAM-DOSSIER.md) | Long-form technical dossier (~60 KB) covering the protocol design rationale, cryptographic choices, and comparison with prior mixnet research (Loopix, Mixminion, Sphinx, Katzenpost). For research-audience readers. |
 
-### Legacy / historical
-
-| File | What it is for |
-|---|---|
-| [`PITCH.md`](PITCH.md) | The original investor pitch (FR), targeting a €3M seed round against an enterprise-GA 2028 timeline. **Kept for historical reference.** The project has since pivoted to a public build-log strategy — the investor framing in this file no longer matches the current direction (see the v3 marketing site). May be removed before the repository goes public. |
-
 ---
 
 ## Per-crate documentation
