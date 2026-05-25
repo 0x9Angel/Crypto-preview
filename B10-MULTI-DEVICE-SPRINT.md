@@ -229,12 +229,12 @@ folded into the larger Gotham audit (see CHECKLIST.md Track C).
 
 | # | Prerequisite | Status today |
 |---|---|---|
-| **P1** | Seed funding closed (covers audit budget) | ❌ targeted Q1 2027 |
-| **P2** | Co-founder / cryptographer-in-residence on board | ❌ |
-| **P3** | One external cryptographer available for Phase 1 review | ❌ TBD |
-| **P4** | Audit firm engagement signed (Phase 4) | ❌ TBD |
-| **P5** | Existing single-device codebase is audit-clean (P5 depends on the upstream Gotham audit) | ❌ scheduled Q2-Q3 2027 |
-| **P6** | Device-registry scaffold landed (V17 schema + UI) | ✅ shipped 2026-05-25 (commit `22de1ac`) |
+| **P1** | Seed funding closed (covers audit budget) | targeted Q1 2027 |
+| **P2** | Co-founder / cryptographer-in-residence on board | |
+| **P3** | One external cryptographer available for Phase 1 review | TBD |
+| **P4** | Audit firm engagement signed (Phase 4) | TBD |
+| **P5** | Existing single-device codebase is audit-clean (P5 depends on the upstream Gotham audit) | scheduled Q2-Q3 2027 |
+| **P6** | Device-registry scaffold landed (V17 schema + UI) | shipped 2026-05-25 (commit `22de1ac`) |
 
 The earliest realistic start of this sprint is therefore **after the
 Gotham audit completes** — roughly Q3-Q4 2027 in the master roadmap.
@@ -295,13 +295,13 @@ and tracked as separate items:
 
 The sprint is "done" when:
 
-1. ✅ A user can link a second device end-to-end.
-2. ✅ Messages received on either device appear on both.
-3. ✅ Devices can be unlinked with immediate effect.
-4. ✅ External audit produces a report with zero Critical findings.
-5. ✅ All sprint tests are green; coverage on the new paths ≥ 85 %.
-6. ✅ `GOTHAM-MULTI-DEVICE-PROTOCOL.md` is published in the repo.
-7. ✅ The release-notes blog post is drafted (not necessarily
+1. A user can link a second device end-to-end.
+2. Messages received on either device appear on both.
+3. Devices can be unlinked with immediate effect.
+4. External audit produces a report with zero Critical findings.
+5. All sprint tests are green; coverage on the new paths ≥ 85 %.
+6. `GOTHAM-MULTI-DEVICE-PROTOCOL.md` is published in the repo.
+7. The release-notes blog post is drafted (not necessarily
    published — publication waits for the overall enterprise GA
    window).
 

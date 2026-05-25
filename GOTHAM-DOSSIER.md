@@ -162,7 +162,7 @@ randomisé, (c) du faux trafic (cover) est mélangé au vrai.
 **Sphinx** (Danezis-Goldberg 2009) est le format de paquet standard
 pour mixnet à oignon-routing. Chaque paquet contient :
 
-- Un **header** (`(α, β, γ)`) : 
+- Un **header** (`(α, β, γ)`) :
   - α = clé publique éphémère pour la couche actuelle
   - β = données de routage chiffrées par couches
   - γ = MAC qui authentifie l'header
@@ -228,25 +228,25 @@ Gotham choisit **onion** — plus simple à raisonner, format paquet bien
 ### 4.2 Cycle de vie d'un message
 
 ```
-Alice                Entry         Mix           Exit          Bob
- │                    │             │             │             │
- │ 1. sceller body    │             │             │             │
- │ 2. pick path       │             │             │             │
- │ 3. wrap Sphinx     │             │             │             │
- │                    │             │             │             │
- │── packet [α₀] ────▶│             │             │             │
- │                    │ 4. unwrap   │             │             │
- │                    │ 5. Poisson  │             │             │
- │                    │── [α₁] ────▶│             │             │
- │                    │             │ 4. unwrap   │             │
- │                    │             │ 5. Poisson  │             │
- │                    │             │── [α₂] ────▶│             │
- │                    │             │             │ 4. unwrap   │
- │                    │             │             │ 6. deliver  │
- │                    │             │             │── body ────▶│
- │                                                              │ 7. unseal
- │                                                              │ 8. ratchet decrypt
- │                                                              │ 9. emit message-received
+Alice Entry Mix Exit Bob
+ │ │ │ │ │
+ │ 1. sceller body │ │ │ │
+ │ 2. pick path │ │ │ │
+ │ 3. wrap Sphinx │ │ │ │
+ │ │ │ │ │
+ │── packet [α₀] ────▶│ │ │ │
+ │ │ 4. unwrap │ │ │
+ │ │ 5. Poisson │ │ │
+ │ │── [α₁] ────▶│ │ │
+ │ │ │ 4. unwrap │ │
+ │ │ │ 5. Poisson │ │
+ │ │ │── [α₂] ────▶│ │
+ │ │ │ │ 4. unwrap │
+ │ │ │ │ 6. deliver │
+ │ │ │ │── body ────▶│
+ │ │ 7. unseal
+ │ │ 8. ratchet decrypt
+ │ │ 9. emit message-received
 ```
 
 À chaque hop, un observateur externe voit un paquet de **2048 octets
@@ -258,41 +258,41 @@ réels, factices, loop.
 
 ```
 crypto/
-├── crypto-gotham/            # Primitives protocole (no I/O)
-│   ├── src/
-│   │   ├── hybrid.rs         # X25519 + ML-KEM-768 KEM
-│   │   ├── header.rs         # Header Sphinx v0.1 (slot-based)
-│   │   ├── header_v2.rs      # Header v0.2 (folded shift-and-pad)
-│   │   ├── payload_v2.rs     # Payload AEAD v0.2
-│   │   ├── packet.rs         # Wrap/unwrap paquet complet
-│   │   ├── route.rs          # Route descriptor
-│   │   ├── relay.rs          # Stateless relay state machine
-│   │   ├── cover.rs          # Cover scheduler Poisson
-│   │   ├── directory.rs      # SignedDirectory + PathSelector
-│   │   ├── directory_refresh.rs  # A3.7 refresh anonyme
-│   │   └── sealed.rs         # Sealed-sender envelope
-│   ├── fuzz/                 # cargo-fuzz harnesses
-│   ├── proofs/               # Kani model-check
-│   └── benches/timing_leak.rs # Criterion dudect-style
+├── crypto-gotham/ # Primitives protocole (no I/O)
+│ ├── src/
+│ │ ├── hybrid.rs # X25519 + ML-KEM-768 KEM
+│ │ ├── header.rs # Header Sphinx v0.1 (slot-based)
+│ │ ├── header_v2.rs # Header v0.2 (folded shift-and-pad)
+│ │ ├── payload_v2.rs # Payload AEAD v0.2
+│ │ ├── packet.rs # Wrap/unwrap paquet complet
+│ │ ├── route.rs # Route descriptor
+│ │ ├── relay.rs # Stateless relay state machine
+│ │ ├── cover.rs # Cover scheduler Poisson
+│ │ ├── directory.rs # SignedDirectory + PathSelector
+│ │ ├── directory_refresh.rs # A3.7 refresh anonyme
+│ │ └── sealed.rs # Sealed-sender envelope
+│ ├── fuzz/ # cargo-fuzz harnesses
+│ ├── proofs/ # Kani model-check
+│ └── benches/timing_leak.rs # Criterion dudect-style
 │
-├── crypto-gotham-relay/      # Daemon QUIC + Noise XK
-│   ├── src/
-│   │   ├── transport.rs      # QUIC + Noise XK + frame I/O
-│   │   ├── process.rs        # Relay::process forward/drop/deliver
-│   │   ├── replay.rs         # LRU + TTL 5 min cache γ
-│   │   ├── delay.rs          # Poisson scheduler
-│   │   ├── pool.rs           # Outbound connection pool
-│   │   ├── client.rs         # GothamClient (sender side)
-│   │   ├── cover_loop.rs     # Background cover task
-│   │   ├── pluggable.rs      # A6 trait + TLS-TCP fallback
-│   │   └── main.rs           # gotham-relay binary
+├── crypto-gotham-relay/ # Daemon QUIC + Noise XK
+│ ├── src/
+│ │ ├── transport.rs # QUIC + Noise XK + frame I/O
+│ │ ├── process.rs # Relay::process forward/drop/deliver
+│ │ ├── replay.rs # LRU + TTL 5 min cache γ
+│ │ ├── delay.rs # Poisson scheduler
+│ │ ├── pool.rs # Outbound connection pool
+│ │ ├── client.rs # GothamClient (sender side)
+│ │ ├── cover_loop.rs # Background cover task
+│ │ ├── pluggable.rs # A6 trait + TLS-TCP fallback
+│ │ └── main.rs # gotham-relay binary
 │
-└── crypto-gotham-push/       # Push notification relay
+└── crypto-gotham-push/ # Push notification relay
     └── src/
-        ├── enrollment.rs     # recipient_pk → push_token store
-        ├── provider.rs       # APNS + FCM trait
-        ├── relay.rs          # DeliveryHandler that triggers push
-        └── main.rs           # gotham-push-relay binary
+        ├── enrollment.rs # recipient_pk → push_token store
+        ├── provider.rs # APNS + FCM trait
+        ├── relay.rs # DeliveryHandler that triggers push
+        └── main.rs # gotham-push-relay binary
 ```
 
 ---
@@ -450,28 +450,28 @@ Crate Rust : `snow 0.9`.
 ### 6.2 Layout binaire
 
 ```text
-offset  size  field
-    0     1  version (= 1)
-    1     1  mode (0=low-latency, 1=balanced, 2=paranoid)
-    2     1  hop_count (n; 1 ≤ n ≤ MAX_HOPS)
-    3     1  hop_index (i; 0 ≤ i < hop_count) — incrémente à chaque hop
-    4    32  α — X25519 ephemeral public key for this hop
-   36   320  β — 5 × 64 B encrypted routing slots
-  356    16  γ — Poly1305 MAC over (meta || α || β[slot_i] || trailer)
-  372    12  trailer — random padding (covered by γ)
+offset size field
+    0 1 version (= 1)
+    1 1 mode (0=low-latency, 1=balanced, 2=paranoid)
+    2 1 hop_count (n; 1 ≤ n ≤ MAX_HOPS)
+    3 1 hop_index (i; 0 ≤ i < hop_count) — incrémente à chaque hop
+    4 32 α — X25519 ephemeral public key for this hop
+   36 320 β — 5 × 64 B encrypted routing slots
+  356 16 γ — Poly1305 MAC over (meta || α || β[slot_i] || trailer)
+  372 12 trailer — random padding (covered by γ)
 ```
 
 ### 6.3 Routing record (64 B)
 
 ```text
-offset  size  field
-    0     4  next_ipv4
-    4     2  next_port (big-endian)
-    6    32  next_node_id (relay identity fingerprint / X25519 pubkey)
-   38    16  next_gamma (γ que le prochain hop installera dans son header)
-   54     4  delay_micros (big-endian) — Poisson sample en microsec
-   58     1  flag (bit 0 = IS_LAST_HOP, bit 1 = DELIVER_LOCAL)
-   59     5  _padding (doit être zéro)
+offset size field
+    0 4 next_ipv4
+    4 2 next_port (big-endian)
+    6 32 next_node_id (relay identity fingerprint / X25519 pubkey)
+   38 16 next_gamma (γ que le prochain hop installera dans son header)
+   54 4 delay_micros (big-endian) — Poisson sample en microsec
+   58 1 flag (bit 0 = IS_LAST_HOP, bit 1 = DELIVER_LOCAL)
+   59 5 _padding (doit être zéro)
 ```
 
 ### 6.4 Construction côté sender
@@ -515,13 +515,13 @@ offset  size  field
 
 | Propriété | Statut |
 |---|---|
-| Confidentialité content (sealed-sender layer) | ✅ |
-| Confidentialité par-hop (un hop ne peut lire que sa propre slot) | ✅ |
-| Anti-replay (cache γ LRU + 5 min TTL) | ✅ |
-| Anti-tagging (γ MAC chain) | ✅ |
-| Position-hiding (hop_index ne fuit pas la position dans le chemin) | ❌ — le byte `hop_index` est visible (1 B fuite) |
-| Length-hiding | ✅ — paquets fixes 2048 B |
-| Post-quantique au niveau header | ❌ — X25519 seul dans v0.1 wire |
+| Confidentialité content (sealed-sender layer) | |
+| Confidentialité par-hop (un hop ne peut lire que sa propre slot) | |
+| Anti-replay (cache γ LRU + 5 min TTL) | |
+| Anti-tagging (γ MAC chain) | |
+| Position-hiding (hop_index ne fuit pas la position dans le chemin) | — le byte `hop_index` est visible (1 B fuite) |
+| Length-hiding | — paquets fixes 2048 B |
+| Post-quantique au niveau header | — X25519 seul dans v0.1 wire |
 
 Le compromis "1 B fuite" était volontaire pour v0.1 — simpler implementation,
 testé en condition réelle avant d'introduire le folded design plus
@@ -548,14 +548,14 @@ Implémenté sur la branche `gotham-v0.2`, module `header_v2.rs`.
 ### 7.2 Layout v0.2
 
 ```text
-offset  size  field
-    0     1  version (= 2)
-    1     1  mode
-    2     2  reserved (doivent être zéro)
-    4    32  α
-   36   320  β — folded routing block
-  356    16  γ — Poly1305 MAC sur (meta || α || β || trailer)
-  372    12  trailer
+offset size field
+    0 1 version (= 2)
+    1 1 mode
+    2 2 reserved (doivent être zéro)
+    4 32 α
+   36 320 β — folded routing block
+  356 16 γ — Poly1305 MAC sur (meta || α || β || trailer)
+  372 12 trailer
 ```
 
 ### 7.3 Algorithme "shift-and-pad" classique Sphinx
@@ -640,19 +640,19 @@ destinataire si tampered.
 ### 8.2 Wire layout (constant à chaque hop)
 
 ```text
-offset    size   field
-     0    1648   ciphertext (AEAD-encrypted under k_payload_{n-1})
-  1648      16   Poly1305 tag
+offset size field
+     0 1648 ciphertext (AEAD-encrypted under k_payload_{n-1})
+  1648 16 Poly1305 tag
                  total = 1664 = PAYLOAD_SIZE
 ```
 
 ### 8.3 Plaintext format
 
 ```text
-offset    size   field
-     0       4   body_len (BE u32, ≤ BODY_CAP = 1644)
-     4       L   body (sealed-sender envelope OR arbitrary bytes)
-   4+L     ...   zero pad → PER_HOP_PAYLOAD = 1648
+offset size field
+     0 4 body_len (BE u32, ≤ BODY_CAP = 1644)
+     4 L body (sealed-sender envelope OR arbitrary bytes)
+   4+L ... zero pad → PER_HOP_PAYLOAD = 1648
 ```
 
 ### 8.4 Pourquoi pas LIONESS (per-hop onion)
@@ -688,12 +688,12 @@ Signal sealed-sender.
 ### 9.2 Wire format (60 B overhead)
 
 ```text
-offset  size  field
-    0    32   ephemeral X25519 public key (per-message)
-   32    12   ChaCha20-Poly1305 nonce
-   44    32   sender identity X25519 public key  ┐ AEAD-encrypted
-   76     L   inner body (e.g. Double-Ratchet CT) ┤  under k_seal
-   ...   16   Poly1305 tag                        ┘
+offset size field
+    0 32 ephemeral X25519 public key (per-message)
+   32 12 ChaCha20-Poly1305 nonce
+   44 32 sender identity X25519 public key ┐ AEAD-encrypted
+   76 L inner body (e.g. Double-Ratchet CT) ┤ under k_seal
+   ... 16 Poly1305 tag ┘
 ```
 
 `k_seal = HKDF-SHA256(X25519(ephem_sk, recipient_pk), "gotham-sealed-v1")`.
@@ -735,11 +735,11 @@ Gotham packet (2048 B fixed)
   │
   ▼
 Noise XK (snow) — per-link symmetric ChaCha20-Poly1305
-  │  + 16 B AEAD tag  →  2064 B on the wire
+  │ + 16 B AEAD tag → 2064 B on the wire
   ▼
 QUIC bi-stream over TLS 1.3 (rustls)
-  │  TLS cert self-signed ; Noise XK provides real authentication
-  │  custom rustls verifier accepts any cert
+  │ TLS cert self-signed ; Noise XK provides real authentication
+  │ custom rustls verifier accepts any cert
   ▼
 UDP (default port 443)
 ```
@@ -783,8 +783,8 @@ Implémentations :
 
 | Variante | Statut | Notes |
 |---|---|---|
-| **QuicTransport** (UDP/443) | ✅ par défaut | Le code existant `transport.rs` wrappé. |
-| **TlsTcpTransport** (TCP/443) | ✅ live | Vanilla HTTPS fingerprint (h2 + http/1.1 ALPN), SNI rotatif (`cdn.cloudflare.com` / `s3.amazonaws.com` / EU enterprise hosts). |
+| **QuicTransport** (UDP/443) | par défaut | Le code existant `transport.rs` wrappé. |
+| **TlsTcpTransport** (TCP/443) | live | Vanilla HTTPS fingerprint (h2 + http/1.1 ALPN), SNI rotatif (`cdn.cloudflare.com` / `s3.amazonaws.com` / EU enterprise hosts). |
 | **Obfs4Transport** | scaffold | Trait shape fixé, body TODO — nécessite intégration `obfs4-rs` ou port clean-room du spec Yawning Angel. |
 | **MeekCdnTransport** | scaffold | HTTPS POST domain-fronté via Cloudfront / Fastly. Trait shape fixé. |
 
@@ -924,11 +924,11 @@ Module `crypto-gotham/src/directory.rs`.
 
 ```rust
 struct RelayDescriptor {
-    id_pubkey_hex: String,    // X25519 identity (= kem in v0.1)
+    id_pubkey_hex: String, // X25519 identity (= kem in v0.1)
     kem_pubkey_hex: String,
-    addr: String,             // "ip:port"
-    tier: RelayTier,          // Entry / Mix / Exit / Mirror
-    country: Option<String>,  // ISO 3166-1 alpha-2
+    addr: String, // "ip:port"
+    tier: RelayTier, // Entry / Mix / Exit / Mirror
+    country: Option<String>, // ISO 3166-1 alpha-2
     asn: Option<u32>,
     operator: Option<String>, // pour la diversité
     uptime_pct: Option<f32>,
@@ -939,16 +939,16 @@ struct RelayDescriptor {
 
 ```rust
 struct DirectoryDoc {
-    version: u8,         // = DIRECTORY_VERSION (1)
-    valid_after: u64,    // Unix seconds
+    version: u8, // = DIRECTORY_VERSION (1)
+    valid_after: u64, // Unix seconds
     valid_until: u64,
-    relays: Vec<RelayDescriptor>,  // sorted by id_pubkey_hex (canonical)
+    relays: Vec<RelayDescriptor>, // sorted by id_pubkey_hex (canonical)
 }
 
 struct SignedDirectory {
     doc: DirectoryDoc,
     authority_pubkey_hex: String,
-    signature_hex: String,  // Ed25519 over canonical_bytes(doc)
+    signature_hex: String, // Ed25519 over canonical_bytes(doc)
 }
 ```
 
@@ -975,8 +975,8 @@ v0.1).
 
 Wire format inside la sealed envelope body :
 ```text
-byte 0      type tag (1 = Request, 2 = Response)
-byte 1..    serde-JSON encoded
+byte 0 type tag (1 = Request, 2 = Response)
+byte 1.. serde-JSON encoded
 ```
 
 Chunking pour grandes directories (> ~1.4 kB par paquet) géré par
@@ -1116,7 +1116,7 @@ Persiste `<gotham_dir>/identity.key` (chmod 0600 sur Unix). Génération
 Migration crypto-store v15 (additive-only) :
 
 ```sql
-ALTER TABLE contacts    ADD COLUMN gotham_pk_hex TEXT;
+ALTER TABLE contacts ADD COLUMN gotham_pk_hex TEXT;
 ALTER TABLE own_profile ADD COLUMN gotham_pk_hex TEXT;
 ```
 
@@ -1210,14 +1210,14 @@ hiding (SMP/Tor fallback)" affichée when `transport === "gotham"`.
 
 | Adversaire | Capacités | Résistance Gotham |
 |---|---|---|
-| **Passif réseau local** (ISP, café WiFi) | Lit le trafic du user | ✅ tout chiffré, paquets fixes 2048B, mixing Poisson |
-| **Compromis d'un seul relais** (n'importe quel tier) | Lit le trafic qu'il traite | ✅ ne voit que `prev_hop`, `next_hop`, son record décrypté |
-| **Replay attaquant** | Réinjecte des paquets capturés | ✅ cache γ LRU + 5 min TTL |
-| **Tagging attaquant** | Flip un byte pour marquer un paquet | ✅ γ MAC chain break à n'importe quel hop ; v0.2 ajoute AEAD payload au dernier hop |
-| **Adversaire quantique futur** | Casse les ECC clavier | ⚠️ v0.1 X25519 seul fragile ; v0.2 hybride ML-KEM-768 |
-| **Coercition juridictionnelle d'un opérateur** | Force un opérateur à logger | ⚠️ mitigé par tier-diversity + multi-pays operator policy (encore non-déployé) |
-| **DPI / blocage UDP 443** | Block QUIC | ✅ A6 pluggable transports — fallback TLS-TCP/443, obfs4 et meek-CDN à venir |
-| **Compromis app endpoint** | Malware sur device user | ❌ hors scope Gotham (mitigé par hardening OS + audit Crypto separately) |
+| **Passif réseau local** (ISP, café WiFi) | Lit le trafic du user | tout chiffré, paquets fixes 2048B, mixing Poisson |
+| **Compromis d'un seul relais** (n'importe quel tier) | Lit le trafic qu'il traite | ne voit que `prev_hop`, `next_hop`, son record décrypté |
+| **Replay attaquant** | Réinjecte des paquets capturés | cache γ LRU + 5 min TTL |
+| **Tagging attaquant** | Flip un byte pour marquer un paquet | γ MAC chain break à n'importe quel hop ; v0.2 ajoute AEAD payload au dernier hop |
+| **Adversaire quantique futur** | Casse les ECC clavier | v0.1 X25519 seul fragile ; v0.2 hybride ML-KEM-768 |
+| **Coercition juridictionnelle d'un opérateur** | Force un opérateur à logger | mitigé par tier-diversity + multi-pays operator policy (encore non-déployé) |
+| **DPI / blocage UDP 443** | Block QUIC | A6 pluggable transports — fallback TLS-TCP/443, obfs4 et meek-CDN à venir |
+| **Compromis app endpoint** | Malware sur device user | hors scope Gotham (mitigé par hardening OS + audit Crypto separately) |
 
 ### 17.2 Adversaires HORS scope
 
@@ -1275,16 +1275,16 @@ Explicitement non-résistants :
 
 | Système | Type | Latence | PQ | Cover traffic | Status |
 |---|---|---|---|---|---|
-| **Tor** | Onion-router | 800-2000 ms | ❌ | ❌ standard | Production-mature |
-| **Mixminion** | Mixnet anonyme | 1-4 h | ❌ | ⚠️ par-batch | Discontinued |
-| **Loopix** | Mixnet temps-réel | ~1 s | ❌ | ✅ Poisson | Académique (papier 2017) |
-| **Nym** | Mixnet + Loopix | ~1-2 s | ⚠️ migration en cours | ✅ | Production (token-incentivized) |
-| **HOPR** | Mixnet on-chain | quelques s | ❌ | ✅ | Token-incentivized |
-| **Signal** | Messagerie E2E | ~100 ms | ❌ | ❌ | Production-mature |
-| **Wire** | Messagerie E2E | ~100 ms | ❌ | ❌ | Production |
-| **Olvid** | Messagerie E2E | ~100 ms | ❌ | ❌ | Production FR |
-| **Tchap (Matrix)** | Messagerie fédérée | ~100 ms | ❌ | ❌ | Production État FR |
-| **Gotham** | Mixnet temps-réel | 50-300 ms | ✅ ML-KEM-768 hybride | ✅ Poisson Loopix | Pre-alpha, en build |
+| **Tor** | Onion-router | 800-2000 ms | | standard | Production-mature |
+| **Mixminion** | Mixnet anonyme | 1-4 h | | par-batch | Discontinued |
+| **Loopix** | Mixnet temps-réel | ~1 s | | Poisson | Académique (papier 2017) |
+| **Nym** | Mixnet + Loopix | ~1-2 s | migration en cours | | Production (token-incentivized) |
+| **HOPR** | Mixnet on-chain | quelques s | | | Token-incentivized |
+| **Signal** | Messagerie E2E | ~100 ms | | | Production-mature |
+| **Wire** | Messagerie E2E | ~100 ms | | | Production |
+| **Olvid** | Messagerie E2E | ~100 ms | | | Production FR |
+| **Tchap (Matrix)** | Messagerie fédérée | ~100 ms | | | Production État FR |
+| **Gotham** | Mixnet temps-réel | 50-300 ms | ML-KEM-768 hybride | Poisson Loopix | Pre-alpha, en build |
 
 ### 18.1 Détails vs Tor
 

@@ -81,11 +81,11 @@ Statut agrégé 2026-05-25 :
 
 | Phase | Statut |
 |-------|--------|
-| 1 Sphinx packet | ✅ shipped (main) + A1.8 folded-KEM sur `gotham-v0.2` |
-| 2 Relay binary | ✅ shipped |
-| 3 Directory | ✅ shipped (main) + A3.7 anonymous refresh sur `gotham-v0.2` |
-| 4 App integration | ✅ shipped (7/7 sous-items) |
-| 5 Cover traffic | ✅ desktop · mobile bits sur 1.3 |
+| 1 Sphinx packet | shipped (main) + A1.8 folded-KEM sur `gotham-v0.2` |
+| 2 Relay binary | shipped |
+| 3 Directory | shipped (main) + A3.7 anonymous refresh sur `gotham-v0.2` |
+| 4 App integration | shipped (7/7 sous-items) |
+| 5 Cover traffic | desktop · mobile bits sur 1.3 |
 | 6 Pluggable transports | A6.1 main · A6.2–A6.5 sur `gotham-v0.2` |
 | 7 Hardening | partiel main · fuzz + Kani + dudect sur `gotham-v0.2` |
 | 8 Push relay | scaffolds sur `gotham-v0.2` |
