@@ -1,7 +1,7 @@
 # SECURITY AUDIT — Crypto + Gotham
 
 **Date** : 2026-05-25
-**Auditeur** : ARRAKIS / Lisan al-Gaib (interne)
+**Auditeur** : Angel (interne)
 **Périmètre** : `crypto/` workspace complet — 27 189 LOC Rust + 7 103 LOC TS/React, 765 crate dependencies.
 **Méthode** : revue manuelle ligne-par-ligne + `cargo audit` + recherche de patterns dangereux (SQLi,
 unsafe, RNG, nonce reuse, panic paths, XSS, path traversal).
