@@ -1,5 +1,22 @@
 # SECURITY AUDIT — Crypto + Gotham
 
+> ## UPDATE 2026-07-03
+>
+> _Ce bloc met à jour l'état ; le rapport interne du 2026-05-25 est conservé verbatim ci-dessous comme trace historique et n'est pas modifié._
+>
+> **Codebase** : ~31 919 LOC Rust (le chiffre de 27 189 ci-dessous est l'instantané du 2026-05-25). **338 fonctions de test automatisées**, `cargo test` vert sur tout le workspace.
+>
+> **Ligne de version** : v0.7 (transport Gotham-only). En v0.7 (2026-05-30) Tor, Lokinet et le serveur de fédération SMP ont été retirés, et les crates **`crypto-server` et `crypto-cli` ont été supprimées**. Conséquences sur ce rapport :
+> - **H-2**, **M-7**, **M-8** ciblaient toutes `crypto-server` : elles sont désormais **caduques / sans objet** (le crate n'existe plus). Ne pas les considérer comme des dettes ouvertes.
+> - **M-1** (points X25519 de petit ordre dans le blind Sphinx) est **CORRIGÉ** : les points de petit ordre sont rejetés (remplacement de `was_contributory`), Sphinx est passé en v0.2 (paquets de taille fixe 2048 o, KEM hybride X25519 + ML-KEM-768 par saut).
+> - **H-4** (RSA-Marvin, RUSTSEC-2023-0071, via `openidconnect`) **demeure l'unique risque accepté** : chemin inatteignable, documenté.
+>
+> **Revues depuis mai** : plusieurs revues adverses multi-agents ont été menées (dont un audit ayant produit 11 findings) ; **tous les findings confirmés ont été corrigés**. Il n'y a **toujours PAS d'audit externe / tiers indépendant** — uniquement l'audit interne ci-dessous (2026-05-25) et ces revues internes.
+>
+> **Posture d'anonymat (honnête)** : la protection du CONTENU (E2E — X3DH + Double Ratchet, sealed-sender) est solide et testable. L'anonymat au niveau réseau du mixnet reste **THÉORIQUE à ce jour** : une autorité d'annuaire + 3 relais sont en ligne, mais les 3 relais partagent un même /16, si bien que le garde de diversité de chemin (correct) refuse de construire une route — **aucun message réel n'a encore transité le réseau live**. L'anonymat réseau ne sera avéré qu'avec (a) des relais répartis sur plusieurs /16 et (b) un audit externe. Aucune garantie absolue.
+
+---
+
 **Date** : 2026-05-25
 **Auditeur** : Angel (interne)
 **Périmètre** : `crypto/` workspace complet — 27 189 LOC Rust + 7 103 LOC TS/React, 765 crate dependencies.

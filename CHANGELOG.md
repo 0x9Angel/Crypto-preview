@@ -12,10 +12,106 @@ Entries are tagged with the scope they affect:
 - `relay` — the Gotham relay binary
 - `tauri` — the desktop application layer
 - `store` — the SQLCipher-backed storage layer
-- `server` — the optional federation server
 - `enterprise` — the OIDC / SCIM / audit-log enterprise tier
 - `docs` — documentation
 - `security` — security advisories or hardening changes
+
+---
+
+## [0.7.0] — 2026-05-30 — Gotham-only transport switch
+
+This is the v0.7 protocol/product line. App builds are tagged in the
+v2.1.x series (current internal HEAD ~`9b0c3da`). The workspace is
+~31,919 LOC Rust with 338 automated test functions (`cargo test`
+green across the workspace). One accepted risk remains:
+RUSTSEC-2023-0071 (RSA Marvin) via `openidconnect`, on an unreachable
+path, documented.
+
+### Removed
+
+- **BREAKING: gotham/crypto:** Tor v3, Lokinet, and the SMP
+  federation transport are removed. Gotham is now the sole transport.
+  Migration: existing contacts must be re-established over Gotham;
+  there is no Tor/Lokinet/SMP fallback path anymore.
+- **BREAKING: server:** the `crypto-server` (SMP federation server)
+  and `crypto-cli` crates are deleted from the workspace. There is no
+  longer any server to host, pin, or subpoena.
+
+### Added — Gotham transport
+
+- **gotham:** Sphinx v0.2 fixed-size 2048-byte packets with an
+  X25519 + ML-KEM-768 hybrid (post-quantum) KEM per hop, over a
+  Noise XK / QUIC link layer.
+- **gotham:** Loopix-style Poisson mixing with continuous cover
+  traffic; real user sends are now routed through the cover-traffic
+  queue rather than dispatched directly.
+- **gotham:** LIONESS wide-block non-malleable PRP (Anderson-Biham,
+  4-round) protects the per-hop payload, replacing the earlier
+  XOR / per-hop-AEAD branch and defeating tagging attacks.
+- **gotham:** SURB (single-use reply blocks) enabling anonymous
+  mailbox fetch.
+- **gotham:** Gotham mailbox for store-and-forward offline delivery;
+  deposit is performed over the mixnet and recipients are spread
+  across mailbox hosts via HRW (rendezvous) hashing.
+- **gotham:** decentralized peer-to-peer gossip transport — relays
+  discover each other — anchored by k-of-n authority attestation.
+- **gotham:** self-forming signed directory plus a directory
+  authority (enroll / heartbeat / proof-of-possession liveness
+  probe).
+
+### Changed — Gotham path selection
+
+- **gotham:** path selection now enforces GLOBAL diversity: a
+  distinct operator and a distinct network (/16 for IPv4, /48 for
+  IPv6) across the whole path, with entry not equal to exit.
+
+### Added — Crypto app
+
+- **agent:** Signal-style safety-number identity verification
+  (60-digit), forced and persisted, with a verified flag and an
+  alert on pinned-key change for MITM detection. This replaces the
+  earlier TOFU server-key pinning (there is no server to pin
+  anymore).
+- **agent:** identity-key rotation and revocation implemented
+  end-to-end.
+- **store:** encrypted DB backup and restore with a pre-migration
+  snapshot.
+- **agent:** a multi-device primitive landed (SAS-verified device
+  link + encrypted account-bundle transfer). Activation is
+  deliberately gated and not shipped; end users remain one device
+  per identity today.
+
+### Fixed
+
+- **gotham:** low-order X25519 points are now rejected
+  (was `contributory`); closes the M-1 Sphinx low-order-points
+  finding.
+
+### Security
+
+- **gotham:** message CONTENT protection (E2E) is solid and
+  testable. Network-level anonymity is CURRENTLY THEORETICAL: a
+  directory authority and 3 relays are online, but all 3 sit on a
+  single /16, so the (correct) path-diversity guard refuses to build
+  a route — no real message has yet transited the live network. The
+  anonymity properties hold only once a live network spanning
+  multiple /16s exists and an external audit has been completed;
+  today they are not yet real-world proven. No external independent
+  audit has occurred — only the internal audit (2026-05-25) plus
+  several multi-agent adversarial reviews whose confirmed findings
+  were all fixed. Non-goals are unchanged: no resistance to a global
+  passive adversary, to >60% relay compromise, to endpoint malware,
+  or to forced disclosure of non-ephemeral keys.
+
+### Not shipped / roadmap
+
+- **tauri:** obfs4 and meek-CDN pluggable transports are planned, not
+  shipped; the real Gotham link layer is Noise XK over QUIC.
+- **tauri:** audio/video calls (WebRTC) are scoped but deferred.
+- **crypto:** mobile clients are not started; desktop only
+  (Linux/macOS/Windows).
+- **enterprise:** SCIM 2.0 and active/passive HA replication are
+  enterprise-tier roadmap items, not delivered.
 
 ---
 

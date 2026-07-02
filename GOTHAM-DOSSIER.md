@@ -5,7 +5,11 @@
 > exploitation opérationnelle.
 >
 > **Auteurs :** Angel
-> **Statut :** v0.1 implémenté + tracé ; v0.2 sur branche dédiée.
+> **Statut :** ligne produit/protocole v0.7 (Gotham est désormais le
+> **transport unique** ; Tor / Lokinet / SMP retirés en v0.7, 2026-05-30).
+> Format paquet Sphinx v0.2 (2048 B) actif. Builds app taggés v2.1.x
+> (HEAD interne ~9b0c3da).
+> **Dernière mise à jour :** 2026-07-03.
 > **Licence :** AGPLv3 (open source) + commerciale (Tier-1 entreprise).
 > **Compagnons :**
 > - `GOTHAM.md` — RFC / spécification wire format.
@@ -33,6 +37,7 @@
 13. [Directory authority](#13-directory-authority)
 14. [Sélection de chemin](#14-s%C3%A9lection-de-chemin)
 15. [Push relay mobile](#15-push-relay-mobile)
+15bis. [SURB, mailbox et transport pair-à-pair](#15bis-surb-mailbox-et-transport-pair-%C3%A0-pair)
 16. [Intégration dans Crypto](#16-int%C3%A9gration-dans-crypto)
 17. [Threat model exhaustif](#17-threat-model-exhaustif)
 18. [Comparaison avec d'autres systèmes](#18-comparaison-avec-dautres-syst%C3%A8mes)
@@ -66,11 +71,20 @@ sécurité-entreprise — et est implémenté en Rust pur dans les crates
   chemins de production.
 
 **État actuel** :
-- 8 phases sur 8 du plan d'implémentation atteintes (livrées sur la
-  branche `main` + branche `gotham-v0.2`).
-- 250+ tests workspace, 0 failed, 0 warning clippy.
-- Pré-déploiement : aucune authority directory publique, aucun relais
-  public encore hébergé.
+- 8 phases sur 8 du plan d'implémentation atteintes (livrées sur
+  `main`). Format paquet Sphinx v0.2 (2048 B) + payload LIONESS non-
+  malléable actifs ; SURB, mailbox store-and-forward, gossip P2P et
+  directory auto-formée depuis mai 2026.
+- ~31 919 lignes de Rust ; 338 fonctions de test automatisées,
+  `cargo test --workspace` vert, 0 warning clippy (`-D warnings`).
+- **Réseau d'anonymat pas encore réellement en service.** Une directory
+  authority + 3 relais sont en ligne, mais les 3 relais partagent un
+  seul /16 : le garde de diversité de chemin (correct) refuse donc de
+  construire une route, et **aucun message réel n'a encore transité le
+  réseau live**. L'anonymat réseau reste à ce stade **théorique** — il
+  ne le deviendra qu'avec (a) des relais répartis sur plusieurs /16 et
+  (b) un audit externe indépendant. La protection du **contenu** (E2E)
+  est, elle, solide et testable dès aujourd'hui.
 
 ---
 
@@ -284,7 +298,7 @@ crypto/
 │ │ ├── pool.rs # Outbound connection pool
 │ │ ├── client.rs # GothamClient (sender side)
 │ │ ├── cover_loop.rs # Background cover task
-│ │ ├── pluggable.rs # A6 trait + TLS-TCP fallback
+│ │ ├── pluggable.rs # A6 trait (transports obfusqués — planifiés, non livrés)
 │ │ └── main.rs # gotham-relay binary
 │
 └── crypto-gotham-push/ # Push notification relay
@@ -321,6 +335,12 @@ Gotham utilise X25519 pour :
 
 Crate Rust : `x25519-dalek 2.x` (avec feature `static_secrets`).
 
+**Rejet des points d'ordre faible** : les `α` reçus dont le DH aboutit
+à un point d'ordre faible (secret partagé non-contributif) sont
+**rejetés** à chaque hop. Ceci corrige l'ancien finding M-1 (Sphinx
+low-order points) qui reposait sur un contrôle `was_contributory`
+manquant.
+
 ### 5.2 ML-KEM-768 (NIST FIPS 203)
 
 **Module-Lattice Key Encapsulation Mechanism**, finaliste NIST PQ
@@ -341,12 +361,13 @@ cryptographique classique), l'autre tient encore.
 
 Crate Rust : `ml-kem 0.2` (implémentation pure Rust, conforme FIPS 203).
 
-**Caveat v0.1** : le format paquet 384 B ne contient pas le ciphertext
-ML-KEM (1088 B trop volumineux). L'hybride PQ vit dans
-`crypto-gotham/src/hybrid.rs` mais **n'est pas wired** dans le format
-paquet v0.1 ; le wire utilise X25519 seul. v0.2 introduira un format
-"folded-KEM" qui peut potentiellement intégrer ML-KEM via stockage
-hors-header (à confirmer en design v0.2 final).
+**État actuel (Sphinx v0.2)** : l'échange par-hop est **hybride
+X25519 + ML-KEM-768** — post-quantique dès le premier hop. Le format
+paquet 2048 B accommode le ciphertext ML-KEM (le format historique
+384 B / v0.1 X25519-seul est retiré). Note historique : dans le
+prototype v0.1 initial, l'hybride vivait dans
+`crypto-gotham/src/hybrid.rs` sans être câblé au wire ; ce n'est plus
+le cas.
 
 ### 5.3 HKDF-SHA256 (RFC 5869)
 
@@ -433,6 +454,13 @@ Crate Rust : `snow 0.9`.
 
 ## 6. Format paquet v0.1 — slot-based
 
+> **Note (2026-07-03) — section historique.** Le format v0.1 384 B /
+> slot-based décrit ci-dessous est **retiré** : le wire courant est le
+> Sphinx v0.2 fixed-size 2048 B (§7), avec KEM hybride post-quantique
+> par-hop et payload LIONESS non-malléable (§8). Cette section reste
+> pour la traçabilité de conception ; ne pas la lire comme l'état
+> déployé.
+
 ### 6.1 Constantes
 
 | Symbole | Valeur | Rôle |
@@ -477,7 +505,7 @@ offset size field
 ### 6.4 Construction côté sender
 
 1. **Path selection** via `PathSelector::pick(rng, hop_count)` —
-   diversifie par operator + /16 IPv4.
+   diversité **globale** sur tout le chemin (voir §14).
 2. **Derive chain** : sample un scalaire éphémère `s` ; pour chaque
    hop i : `α_i = α_{i-1}^{k_blind_{i-1}}` ; `s_i = X25519(s, pk_i)`
    ; `sub_keys_i = HKDF(s_i)`.
@@ -531,7 +559,9 @@ complexe. v0.2 supprime cette fuite.
 
 ## 7. Format paquet v0.2 — folded-KEM
 
-Implémenté sur la branche `gotham-v0.2`, module `header_v2.rs`.
+Module `header_v2.rs`. **C'est le format de paquet courant** (Sphinx
+v0.2, 2048 B, KEM hybride post-quantique par-hop) : il a remplacé le
+prototype v0.1 décrit en §6.
 
 ### 7.1 Différences clés vs v0.1
 
@@ -608,41 +638,47 @@ chez le hop *i+1* passe donc proprement.
 
 ### 7.5 État
 
-- Module `header_v2.rs` : **10/10 tests** passing.
-- Algorithme implémenté, encode/decode round-trip vérifié, rejection
-  sur tampering β/γ couverte.
-- **Pas encore wired** dans `packet.rs` ni dans `process.rs` — gate
-  sur l'audit externe (Quarkslab / Synacktiv) avant promotion en
-  default.
+- Module `header_v2.rs` : tests passing (round-trip encode/decode,
+  rejet sur tampering β/γ).
+- **Câblé dans `packet.rs` et `process.rs`** : c'est le chemin de
+  production courant. Un audit externe (Quarkslab / Synacktiv) reste
+  planifié et non encore réalisé (voir §19.5).
 
 ---
 
-## 8. Payload AEAD v0.2
+## 8. Payload — PRP LIONESS non-malléable
 
-Module `payload_v2.rs` sur la branche `gotham-v0.2`.
+Module `payload_v2.rs`.
 
 ### 8.1 Conception
 
-v0.1 ne protège pas la **région payload** (1664 octets après le
-header) — seul le sealed-sender envelope qui vit dedans est chiffré.
-Un relais intermédiaire malveillant peut **tagger** un paquet
-(flipper un byte) pour marquer un message vers un exit
-ISP-cooperant. Le sealed-sender détecterait le tampering au
-destinataire, mais à ce moment-là la corrélation
-"paquet-tampé-entré-ici, message-arrivé-là" est déjà observable.
+Le prototype v0.1 ne protégeait pas la **région payload** (les octets
+après le header) : seul le sealed-sender envelope qui vit dedans était
+chiffré. Un relais intermédiaire malveillant pouvait alors **tagger**
+un paquet (flipper un byte) pour marquer un message vers un exit
+ISP-coopérant. Le sealed-sender détectait le tampering chez le
+destinataire, mais à ce moment-là la corrélation "paquet-tampé-entré-
+ici, message-arrivé-là" était déjà observable.
 
-v0.2 ajoute une couche **AEAD au dernier hop** : `ChaCha20-Poly1305`
-sous `k_payload_{n-1}` (la clé payload dérivée pour le dernier
-hop). Tampering en milieu de chemin → échec AEAD au dernier hop →
-drop silencieux. Le paquet ne quitte JAMAIS le mixnet vers le
-destinataire si tampered.
+**État courant** : le payload par-hop est protégé par un **PRP wide-
+block LIONESS** (construction Anderson-Biham, 4 rounds Luby-Rackoff)
+qui **remplace** l'ancienne branche XOR / AEAD-per-hop. C'est une
+permutation non-malléable sur tout le bloc payload : flipper un seul
+bit d'entrée randomise l'intégralité de la sortie déchiffrée, ce qui
+**neutralise le tagging** — un relais ne peut plus imprimer de marque
+exploitable sans détruire le message de façon indétectable pour
+lui-même.
 
 ### 8.2 Wire layout (constant à chaque hop)
 
+Le payload est un **bloc LIONESS** unique — le PRP wide-block est
+length-preserving, il n'y a donc pas de tag AEAD séparé appendé : tout
+le bloc EST la sortie de la permutation, et chaque hop applique/retire
+sa couche sous `k_payload_i`.
+
 ```text
 offset size field
-     0 1648 ciphertext (AEAD-encrypted under k_payload_{n-1})
-  1648 16 Poly1305 tag
+     0 1664 bloc LIONESS (PRP wide-block, length-preserving)
                  total = 1664 = PAYLOAD_SIZE
 ```
 
@@ -650,27 +686,32 @@ offset size field
 
 ```text
 offset size field
-     0 4 body_len (BE u32, ≤ BODY_CAP = 1644)
+     0 4 body_len (BE u32)
      4 L body (sealed-sender envelope OR arbitrary bytes)
-   4+L ... zero pad → PER_HOP_PAYLOAD = 1648
+   4+L ... zero pad → PAYLOAD_SIZE = 1664
 ```
 
-### 8.4 Pourquoi pas LIONESS (per-hop onion)
+### 8.4 LIONESS (per-hop onion)
 
-La construction classique Sphinx-payload utilise LIONESS — une wide-
-block cipher 4-rounds Luby-Rackoff qui permet AEAD per-hop sans
-shrinking ciphertext. Implementation correcte demande discipline
-filler analogue au header. **v0.2 ship une version simplifiée
-"last-hop-only"** qui est :
-- Plus simple à auditer (un seul appel AEAD).
-- Suffisant pour la propriété "tagging detected end-to-end".
-- Tracé pour v0.3 → upgrade vers LIONESS once code-base stable.
+La construction classique Sphinx-payload utilise LIONESS — un chiffre
+wide-block 4-rounds Luby-Rackoff qui offre une permutation non-
+malléable per-hop **sans shrinking du ciphertext** (la taille reste
+constante à chaque hop). Une implémentation correcte demande une
+discipline de filler analogue à celle du header.
+
+C'est cette construction qui est **désormais déployée** dans Gotham :
+elle a remplacé l'ancienne branche simplifiée (XOR / AEAD last-hop-
+only) du prototype. Bénéfices :
+- Non-malléabilité sur **tout** le bloc à **chaque** hop (pas seulement
+  détection end-to-end au dernier hop).
+- Défense structurelle contre le tagging, sans canal de fuite.
+- Taille de paquet constante (2048 B) préservée.
 
 ### 8.5 État
 
-- 10/10 tests pour `payload_v2`. Round-trip à 1, 3 et 5 hops, tampering
-  detection, framing length-prefix.
-- Wiring dans `client.rs`/`process.rs` gate sur audit (idem header_v2).
+- Tests `payload_v2` : round-trip à 1, 3 et 5 hops, détection de
+  tampering, framing length-prefix, non-malléabilité LIONESS.
+- Câblé dans `client.rs` / `process.rs` (chemin de production courant).
 
 ---
 
@@ -770,28 +811,33 @@ amortissant le handshake à un one-time cost.
 retire de pool + retry avec fresh connection. v0.2 ajoutera un sweep
 background pour proactive evict idle > 5 min.
 
-### 10.4 Pluggable transports (A6)
+### 10.4 Pluggable transports (A6 — planifié, non livré)
 
-Module `pluggable.rs`. Trait `GothamTransport` :
+> **État réel (2026-07-03).** Le link layer Gotham **livré** est
+> **Noise XK sur QUIC** (§10.1–10.3), point. Les « pluggable
+> transports » de type obfs4 ou meek/CDN-fronting **ne sont PAS
+> shippés** ; ils sont au mieux planifiés (roadmap §21.2). Ce qui suit
+> décrit une abstraction de conception, pas une capacité déployée.
+
+Trait de conception `GothamTransport` :
 ```rust
 async fn connect(&self, addr) -> Result<Box<dyn ConnLike>>;
 async fn probe(&self) -> bool;
 fn name(&self) -> &'static str;
 ```
 
-Implémentations :
+Variantes envisagées :
 
 | Variante | Statut | Notes |
 |---|---|---|
-| **QuicTransport** (UDP/443) | par défaut | Le code existant `transport.rs` wrappé. |
-| **TlsTcpTransport** (TCP/443) | live | Vanilla HTTPS fingerprint (h2 + http/1.1 ALPN), SNI rotatif (`cdn.cloudflare.com` / `s3.amazonaws.com` / EU enterprise hosts). |
-| **Obfs4Transport** | scaffold | Trait shape fixé, body TODO — nécessite intégration `obfs4-rs` ou port clean-room du spec Yawning Angel. |
-| **MeekCdnTransport** | scaffold | HTTPS POST domain-fronté via Cloudfront / Fastly. Trait shape fixé. |
+| **QuicTransport** (UDP/443) | **livré (défaut)** | Noise XK sur QUIC — le seul transport réellement en production. |
+| **TlsTcpTransport** (TCP/443) | planifié | Fingerprint HTTPS vanilla (h2 + http/1.1 ALPN), SNI rotatif — non livré. |
+| **Obfs4Transport** | planifié | Nécessiterait `obfs4-rs` ou un port clean-room du spec Yawning Angel — **jamais shippé**. |
+| **MeekCdnTransport** | planifié | HTTPS POST domain-fronté via CDN — **jamais shippé**. |
 
-**AdaptiveTransport** : sélecteur best-of probe-and-stick. Premier
-transport de la liste = hot path (QUIC par défaut). Sur `failure_
-threshold` (default 3) échecs consécutifs → demote et walk down la
-liste. Stratégie de sélection identique Tor PT3.
+**AdaptiveTransport** (sélecteur best-of probe-and-stick, demote après
+`failure_threshold` échecs) est une idée de conception tracée pour
+la roadmap, pas un composant déployé.
 
 ---
 
@@ -807,7 +853,12 @@ Le relais n'a **aucun état persistant** au-delà :
   durée).
 - Le pool de connexions outbound (idem).
 
-Pas de queue de messages, pas de SQLite, **rien à saisir judiciairement**.
+Pas de queue de messages, pas de SQLite : la **surface de données
+persistantes exploitable sur réquisition est minimale** (le relais ne
+conserve ni contenu, ni graphe de destinataires). Ce n'est pas une
+promesse absolue — la clé long-terme réside sur l'hôte, et un
+adversaire capable d'observer le trafic en direct reste hors de portée
+de cette mesure (voir le threat model §17).
 
 ### 11.2 Replay cache
 
@@ -957,21 +1008,28 @@ sign. Verification : strict authority pubkey check + signature verify
 + schema version match + validity window check (now ≥ valid_after AND
 now ≤ valid_until).
 
-### 13.3 Distribution v0.1
+### 13.3 Distribution
 
 Le `SignedDirectory` peut être distribué via :
-- HTTPS clearnet (avec mitigation IP leak via Tor SOCKS).
+- HTTPS clearnet (la fetch elle-même peut être anonymisée via Gotham).
 - Bundle au déploiement (config fichier).
 - **Refresh anonyme via Gotham lui-même** (module
   `directory_refresh.rs`, A3.7 — voir §13.4).
 
+**Directory auto-formée + liveness.** Le directory est désormais
+**self-forming** : les relais s'enrôlent auprès de l'authority
+(`enroll`), envoient des `heartbeat` périodiques, et l'authority vérifie
+leur vivacité via une sonde **proof-of-possession** (le relais doit
+prouver la détention de sa clé long-terme). Les descripteurs sont
+promus/dégradés selon ces signaux avant signature de la directory.
+
 ### 13.4 Refresh anonyme (A3.7)
 
-Sur la branche `gotham-v0.2`. Le client envoie une `DirectoryRequest`
-à un relais tagué "mirror" via Gotham normal. Le mirror répond via
-Gotham également (model A : chaque user = relai, donc le requester a
-une stable Gotham address pour le retour ; pas de SURB requis en
-v0.1).
+Le client envoie une `DirectoryRequest` à un relais tagué "mirror" via
+Gotham normal. Le mirror répond via Gotham également : soit via la
+Gotham address stable du requester (model A : chaque user = relai),
+soit — désormais — via un **SURB** (§15bis.1) pour un retour
+totalement anonyme.
 
 Wire format inside la sealed envelope body :
 ```text
@@ -1000,14 +1058,23 @@ implémenté.
 
 ### 14.1 Contraintes de diversité
 
-Pour chaque chemin sélectionné :
+La diversité est désormais **globale** (sur tout le chemin, pas
+seulement entre hops successifs). Pour chaque chemin sélectionné :
 - **Tier diversity** : 1 Entry + N-2 Mix + 1 Exit (les Mirror sont
   utilisables comme Mix).
-- **Operator diversity** : `consecutive_diverse` — deux hops successifs
-  ne peuvent pas avoir le même `operator` string.
-- **AS diversity (/16 IPv4)** : deux hops successifs ne peuvent pas
-  être dans le même /16. Exception **loopback** (127.0.0.0/8) pour
-  permettre le mode dev 3-relais.
+- **Operator diversity (globale)** : tous les hops du chemin ont un
+  `operator` **distinct** — aucune paire de hops (même non-successifs)
+  ne partage d'opérateur.
+- **Network diversity (globale)** : tous les hops sont dans des réseaux
+  **distincts** — /16 pour IPv4, **/48 pour IPv6**. Aucun /16 (ou /48)
+  n'apparaît deux fois dans le chemin.
+- **Entry ≠ Exit** : le relais d'entrée et le relais de sortie ne
+  peuvent jamais être le même nœud.
+
+Le loopback (127.0.0.0/8) n'est **plus** traité en exception : c'est
+précisément ce garde de diversité globale qui, aujourd'hui, refuse de
+construire une route sur le réseau live (les 3 relais actuels partageant
+un même /16) — comportement correct, voir §17 et le résumé exécutif.
 
 ### 14.2 Hop count per mode
 
@@ -1082,6 +1149,59 @@ Compromission = connaissance de la mapping `recipient_pk → push token`
 
 ---
 
+## 15bis. SURB, mailbox et transport pair-à-pair
+
+Ces mécanismes ont été ajoutés depuis mai 2026 et font partie du wire
+Gotham courant.
+
+### 15bis.1 SURB — single-use reply blocks
+
+Un **SURB** (Single-Use Reply Block) est une route de retour pré-
+construite qu'un émetteur peut joindre à sa requête pour qu'un pair
+lui réponde **sans jamais apprendre son adresse Gotham**. Le SURB est
+un onion header pré-scellé : le répondeur y injecte son payload et le
+ship, et le mixnet le route jusqu'à l'origine.
+
+Propriétés : usage **unique** (un registre de SURB consommés empêche
+le rejeu), et anonymat de la partie qui interroge. Gotham s'en sert
+notamment pour le **fetch anonyme de mailbox** (§15bis.2) : le
+destinataire peut aller chercher ses messages sans révéler qui il est
+au host de mailbox.
+
+### 15bis.2 Gotham mailbox — store-and-forward hors-ligne
+
+Le **mailbox Gotham** assure la livraison **différée** quand le
+destinataire est hors-ligne. Points clés :
+
+- Le **dépôt** d'un message dans le mailbox se fait **au travers du
+  mixnet** (pas en connexion directe) — l'opérateur de mailbox
+  n'apprend pas qui dépose.
+- Les destinataires sont **répartis sur plusieurs hosts de mailbox**
+  par hachage **HRW** (rendezvous / Highest-Random-Weight), ce qui
+  évite un point unique concentrant toutes les métadonnées.
+- Le **retrait** peut se faire via SURB (fetch anonyme, §15bis.1).
+
+### 15bis.3 Transport gossip pair-à-pair
+
+Un **transport de gossip décentralisé** permet aux relais de se
+**découvrir mutuellement** (propagation pair-à-pair des descripteurs et
+de l'état de vivacité), plutôt que de dépendre uniquement d'une source
+centrale. L'ancrage de confiance reste une **attestation k-of-n**
+émise par un quorum d'autorités : un descripteur n'est accepté dans le
+graphe que s'il est attesté par au moins *k* autorités sur *n*, ce qui
+borne l'impact d'une autorité malveillante isolée.
+
+### 15bis.4 État réseau (honnête)
+
+Ces primitives sont implémentées et testées au niveau protocole. Elles
+ne changent **pas** le constat opérationnel : le réseau d'anonymat
+n'est pas encore réellement en service (3 relais sur un seul /16, route
+refusée par le garde de diversité). L'anonymat réseau apporté par SURB
+/ mailbox / gossip reste **théorique** tant qu'un réseau live multi-/16
+et un audit externe n'existent pas.
+
+---
+
 ## 16. Intégration dans Crypto
 
 ### 16.1 Model A : embedded relay
@@ -1120,8 +1240,10 @@ ALTER TABLE contacts ADD COLUMN gotham_pk_hex TEXT;
 ALTER TABLE own_profile ADD COLUMN gotham_pk_hex TEXT;
 ```
 
-NULL sur les rows existantes → fallback transparent au SMP path
-pour les contacts pré-Gotham. Helpers CRUD :
+NULL sur les rows existantes = contact pré-Gotham dont on n'a pas
+encore la clé Gotham (colonne historique conservée pour la migration ;
+Gotham est aujourd'hui le transport unique — il n'y a plus de path SMP
+de repli). Helpers CRUD :
 - `get_contact_gotham_pk(name)`
 - `set_contact_gotham_pk(name, pk_hex)`
 - `find_contact_by_gotham_pk(pk_hex)` — index inverse pour le drainer.
@@ -1155,42 +1277,32 @@ Background tokio task spawnée à `gotham_init` :
    - Persiste via `save_message` + ratchet update.
    - Emit `message-received` Tauri event au frontend.
 
-### 16.6 send_message fast-path
+### 16.6 send_message
 
-Dans `send_message` (lib.rs:996+) :
+Dans `send_message` (lib.rs) :
 
 ```rust
-let gotham_recipient_pk_hex = {
-    let enabled = get_setting("gotham_transport_enabled") == "1";
-    if enabled { get_contact_gotham_pk(contact) } else { None }
-};
+let recipient_hex = get_contact_gotham_pk(contact)
+    .ok_or(Error::NoGothamKeyForContact)?;
 
-if let Some(recipient_hex) = gotham_recipient_pk_hex {
-    // Try Gotham first
-    let result = gotham_client.send_sealed(...).await;
-    if result.is_ok() {
-        // Mark sent, return.
-        return Ok(());
-    }
-    // Else fall through to SMP path.
-}
-
-// Existing SMP path (onion-or-direct over Tor) unchanged.
+// Gotham est le transport unique.
+gotham_client.send_sealed(rng, relays, hops, recipient_hex, my_pk, body).await?;
 ```
 
-→ Backward compat transparente. Si le user désactive Gotham, code path
-inchangé pré-A4.
+→ Depuis v0.7, Gotham est le **seul** transport : il n'y a plus de path
+de repli (Tor / Lokinet / SMP retirés). L'envoi requiert de connaître
+la clé Gotham du destinataire ; à défaut, l'app le signale explicitement
+plutôt que de router en clair.
 
 ### 16.7 UI exposée
 
-`Settings → Network → Anonymous transport` : 3 radios :
-- **Tor** — onion routing (v0.1, default)
-- **Lokinet** — TUN-based anonymous overlay
-- **Gotham mixnet** — post-quantum, metadata-hiding (v0.2)
-
-Chaque radio porte un sous-texte explicatif (threat model + caveat)
-**directement dans l'UI** pour que les screenshots DSI soient auto-
-documenteurs.
+`Settings → Network → Anonymous transport` : **Gotham mixnet** est
+désormais le transport unique (les choix Tor / Lokinet / SMP présents
+dans les versions ≤ v0.6 ont été retirés en v0.7). Le panneau conserve
+un sous-texte explicatif (threat model + caveat) **directement dans
+l'UI** pour que les screenshots DSI soient auto-documenteurs, incluant
+la mention honnête que l'anonymat réseau n'est pas encore éprouvé en
+production (réseau live pas encore multi-/16).
 
 `Settings → Profile → Gotham mixnet (preview)` : section deep-config :
 - Status (local relay addr, directory entries, my PK hex)
@@ -1200,7 +1312,7 @@ documenteurs.
 - Paste box pour set un contact gotham_pk
 
 `Identity` section : bannière "Gotham mixnet — post-quantum, metadata-
-hiding (SMP/Tor fallback)" affichée when `transport === "gotham"`.
+hiding (transport unique)".
 
 ---
 
@@ -1213,10 +1325,10 @@ hiding (SMP/Tor fallback)" affichée when `transport === "gotham"`.
 | **Passif réseau local** (ISP, café WiFi) | Lit le trafic du user | tout chiffré, paquets fixes 2048B, mixing Poisson |
 | **Compromis d'un seul relais** (n'importe quel tier) | Lit le trafic qu'il traite | ne voit que `prev_hop`, `next_hop`, son record décrypté |
 | **Replay attaquant** | Réinjecte des paquets capturés | cache γ LRU + 5 min TTL |
-| **Tagging attaquant** | Flip un byte pour marquer un paquet | γ MAC chain break à n'importe quel hop ; v0.2 ajoute AEAD payload au dernier hop |
-| **Adversaire quantique futur** | Casse les ECC clavier | v0.1 X25519 seul fragile ; v0.2 hybride ML-KEM-768 |
-| **Coercition juridictionnelle d'un opérateur** | Force un opérateur à logger | mitigé par tier-diversity + multi-pays operator policy (encore non-déployé) |
-| **DPI / blocage UDP 443** | Block QUIC | A6 pluggable transports — fallback TLS-TCP/443, obfs4 et meek-CDN à venir |
+| **Tagging attaquant** | Flip un byte pour marquer un paquet | γ MAC chain break au niveau header ; payload protégé par PRP wide-block LIONESS non-malléable (tout flip randomise le bloc entier) |
+| **Adversaire quantique futur** | Casse les ECC classiques | KEM par-hop hybride X25519 + ML-KEM-768 (post-quantique dès le premier hop) |
+| **Coercition juridictionnelle d'un opérateur** | Force un opérateur à logger | mitigé par diversité globale operator + réseau (/16 IPv4, /48 IPv6) ; **efficace seulement une fois un réseau multi-opérateurs / multi-pays réellement en service** |
+| **DPI / blocage UDP 443** | Block QUIC | link layer = Noise XK sur QUIC ; transports obfusqués (obfs4, meek-CDN, TLS-TCP) **planifiés, non livrés** |
 | **Compromis app endpoint** | Malware sur device user | hors scope Gotham (mitigé par hardening OS + audit Crypto separately) |
 
 ### 17.2 Adversaires HORS scope
@@ -1259,15 +1371,22 @@ Explicitement non-résistants :
 
 ### 17.4 Limites connues
 
-- **1 B fuit en v0.1** : le `hop_index` byte révèle la position dans
-  le chemin (corrigé en v0.2).
-- **Pas de PQ dans le wire v0.1** : le format paquet 384 B ne contient
-  pas le ML-KEM ciphertext (1088 B trop volumineux). Hybride PQ vit
-  dans le module `hybrid.rs` mais pas wired.
-- **Pas de per-hop integrity sur le payload v0.1** : un middle hop
-  peut tamper le payload, détecté seulement au dernier hop ou par le
-  destinataire (sealed-sender AEAD). v0.2 ajoute AEAD payload au
-  dernier hop pour détecter le tampering AVANT delivery.
+- **Réseau d'anonymat pas encore en service (limite majeure du jour).**
+  Les propriétés « personne ne sait qui parle à qui », résistance à la
+  corrélation à N utilisateurs, etc., **ne tiennent qu'une fois** un
+  réseau live réparti sur plusieurs /16 en place et un audit externe
+  passé. Aujourd'hui : 3 relais sur un seul /16, route refusée par le
+  garde de diversité, **aucun message réel n'a transité**. L'anonymat
+  réseau est donc **théorique** ; seule la protection du contenu (E2E)
+  est éprouvée.
+- **Position-hiding** : l'ancien prototype v0.1 laissait fuir 1 B
+  (`hop_index`) ; le format Sphinx v0.2 courant a un position-hiding
+  structurel.
+- **Post-quantique** : le KEM par-hop est hybride X25519 + ML-KEM-768
+  sur le wire courant (l'ancien prototype v0.1 X25519-seul est retiré).
+- **Intégrité par-hop du payload** : assurée par le PRP wide-block
+  LIONESS non-malléable (un tampering en milieu de chemin détruit le
+  message de façon détectable, sans marque exploitable pour le relais).
 
 ---
 
@@ -1284,7 +1403,7 @@ Explicitement non-résistants :
 | **Wire** | Messagerie E2E | ~100 ms | | | Production |
 | **Olvid** | Messagerie E2E | ~100 ms | | | Production FR |
 | **Tchap (Matrix)** | Messagerie fédérée | ~100 ms | | | Production État FR |
-| **Gotham** | Mixnet temps-réel | 50-300 ms | ML-KEM-768 hybride | Poisson Loopix | Pre-alpha, en build |
+| **Gotham** | Mixnet temps-réel | 50-300 ms | ML-KEM-768 hybride | Poisson Loopix | Protocole implémenté ; réseau live pas encore multi-/16 (anonymat réseau théorique) |
 
 ### 18.1 Détails vs Tor
 
@@ -1323,8 +1442,8 @@ de Crypto est inspiré directement de Signal.
 - `#![cfg_attr(not(test), deny(clippy::unwrap_used))]`
 - `#![cfg_attr(not(test), deny(clippy::expect_used))]`
 - `#![warn(missing_docs)]`
-- `cargo clippy --workspace --all-targets` : **0 warnings**.
-- `cargo test --workspace` : **206+ tests, 0 failed**.
+- `cargo clippy --workspace --all-targets -- -D warnings` : **0 warning**.
+- `cargo test --workspace` : **338 fonctions de test, 0 failed**.
 
 ### 19.2 Fuzzing (cargo-fuzz)
 
@@ -1363,14 +1482,21 @@ Distribution overlapping → no detectable timing leak.
 Distribution bimodal → P1 investigation (replace `==` par
 `subtle::ConstantTimeEq`, audit early-return branches, etc.).
 
-### 19.5 Audit externe (roadmap)
+### 19.5 Audit (état + roadmap)
 
-Engagement prévu :
+**Réalisé à ce jour :** un **audit interne** (2026-05-25) plus plusieurs
+**revues adversariales multi-agents** ; les findings confirmés ont
+**tous** été corrigés (incl. rejet des points d'ordre faible / M-1,
+diversité IPv6 /48, non-malléabilité LIONESS, pertes de messages
+cover/SURB, reset de safety number, reject loopback). **Aucun audit
+externe indépendant n'a encore eu lieu.**
+
+**Engagement externe prévu (roadmap) :**
 - **Quarkslab** (FR) ou **Synacktiv** (FR) ou **NCC Group** (UK/US)
   pour le crate `crypto-gotham` core.
-- Coût ~50-80 k€ pour audit + remédiation Phase 1.
-- Gate sur le wiring v0.2 — pas de promotion en default tant que
-  l'audit n'a pas signé clean.
+- Coût indicatif ~50-80 k€ pour audit + remédiation Phase 1.
+- Prérequis explicite avant toute revendication d'anonymat réseau
+  « éprouvé en production ».
 
 ---
 
@@ -1381,7 +1507,8 @@ Engagement prévu :
 Préparation host :
 1. VPS dédié, Debian 12+ minimal (ou Arch hardened).
 2. Compte unprivileged `gotham`.
-3. UDP/443 ouvert (et TCP/443 quand pluggable v0.2 actif).
+3. UDP/443 ouvert (et TCP/443 le jour où les transports obfusqués
+   planifiés seront livrés).
 4. Pas de SSH passwd-auth (clé only), `fail2ban` actif.
 
 Install :
@@ -1447,6 +1574,13 @@ v0.2 : automated rotation via Tang / Clevis pour TPM-backed unseal.
 
 ### 20.5 Network topology recommandée
 
+> **État réel (2026-07-03) :** le réseau live compte 1 directory
+> authority + **3 relais sur un seul /16**. Le garde de diversité
+> globale (§14) refuse donc — correctement — de bâtir une route, et
+> aucun message réel n'a encore transité. La topologie ci-dessous est
+> la **cible** à atteindre pour que l'anonymat réseau cesse d'être
+> théorique.
+
 Production minimum :
 - **5 relais** minimum (1 Entry, 3 Mix, 1 Exit).
 - **3 pays UE distincts** (FR, DE, IT par exemple) — coercition
@@ -1466,10 +1600,11 @@ communautaires (universités, ONG techniques).
 
 | Item | Statut |
 |---|---|
-| Audit externe Quarkslab/Synacktiv lancé | À planifier |
-| Wiring v0.2 (`header_v2` + `payload_v2`) dans `packet.rs` / `process.rs` | Gate sur audit |
+| Audit externe Quarkslab/Synacktiv lancé | À planifier (aucun audit externe à ce jour) |
+| Payload LIONESS + Sphinx v0.2 câblés dans `packet.rs` / `process.rs` | **Fait** |
+| **Relais répartis sur plusieurs /16** (débloque une vraie route) | **Priorité #1** — aujourd'hui 3 relais sur un seul /16 |
 | 5 relais publics multi-pays déployés | À planifier |
-| Authority Ed25519 sur YubiKey | À planifier |
+| Authority Ed25519 (directory auto-formée, 3 relais en ligne) | En place ; durcissement hors-ligne (YubiKey) à finaliser |
 | CSPN ANSSI dossier déposé | À préparer |
 
 ### 21.2 Mid-terme (6-12 mois)
@@ -1482,7 +1617,6 @@ communautaires (universités, ONG techniques).
 | **A8 APNS hot path** | a2 + ES256 JWT signing |
 | **A8 FCM hot path** | reqwest + OAuth2 service-account |
 | **A8 Admin enrollment endpoint** | HTTP localhost-only |
-| **Per-hop payload AEAD complet** | Upgrade vers LIONESS (v0.3) |
 | **Model B subscribe protocol** | Pour users derrière NAT (mobile-first) |
 | **Invitation URI extends `gotham_pk`** | Auto key-exchange (élimine paste manuel) |
 

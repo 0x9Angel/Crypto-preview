@@ -83,10 +83,8 @@ Tauri side). Subsequent incremental builds are fast.
 crypto-proto              wire types shared across crates
 crypto-agent              X3DH + Double Ratchet session manager
 crypto-store              SQLCipher-backed local storage
-crypto-server             federation server (optional)
-crypto-cli                command-line client
-crypto-tauri              desktop / mobile app (Rust + React)
-crypto-enterprise         OIDC / SCIM / audit log
+crypto-tauri              desktop app (Rust + React)
+crypto-enterprise         OIDC / audit log
 crypto-gotham             Gotham mixnet protocol primitives
 crypto-gotham-relay       Gotham relay binary
 crypto-tests              cross-crate integration tests
@@ -101,9 +99,8 @@ responsibilities.
 
 ### Branches
 
-- `main` — production line. Always green. Merges are squash-only.
-- `gotham-v0.2` — Gotham protocol v0.2 feature work, gated on
-  external audit before merging back to `main`.
+- `main` — production line (v0.7, Gotham-only). Always green. Merges
+  are squash-only.
 - `feat/<short-name>`, `fix/<short-name>`, `docs/<short-name>` for
   individual changes.
 
@@ -124,8 +121,8 @@ Types we use: `feat`, `fix`, `perf`, `refactor`, `docs`, `test`,
 `chore`, `build`, `ci`.
 
 Scopes are crate names without the `crypto-` prefix, plus a few
-cross-cutting scopes: `gotham`, `relay`, `tauri`, `store`, `server`,
-`agent`, `proto`, `cli`, `enterprise`, `checklist`, `security`, `lint`.
+cross-cutting scopes: `gotham`, `relay`, `tauri`, `store`,
+`agent`, `proto`, `enterprise`, `checklist`, `security`, `lint`.
 
 Example commits from the project history:
 
@@ -148,7 +145,7 @@ only.
 1. **Open an issue first** for non-trivial changes. A 1-line PR
    description is fine for typos, but feature work needs a design
    discussion.
-2. **Branch from `main`** (or `gotham-v0.2` for protocol v0.2 work).
+2. **Branch from `main`.**
 3. **Make focused commits.** One logical change per commit. A 50-line
    refactor and a 200-line feature should not share a commit.
 4. **Run the full test suite** before pushing:
@@ -236,8 +233,7 @@ greater. Concretely:
   `crypto-gotham-relay/tests/` or `crypto-tests/tests/`.
 - New error path → a test that exercises it.
 - Fuzz-friendly parser → a fuzz target under `crypto-gotham/fuzz/`
-  (currently maintained on the `gotham-v0.2` branch; will move to
-  `main` once track 4.2.1 in [`CHECKLIST.md`](CHECKLIST.md) closes).
+  (tracked under 4.2.1 in [`CHECKLIST.md`](CHECKLIST.md)).
 
 Run the relevant subset locally before pushing:
 

@@ -6,7 +6,7 @@ Gotham projects.
 **Status:** v1 — single-founder governance, with explicit plan to
 evolve as the project grows.
 
-**Last reviewed:** 2026-05-25
+**Last reviewed:** 2026-07-03
 
 ---
 

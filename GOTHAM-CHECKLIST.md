@@ -3,7 +3,7 @@
 > All tracks in one document. Tick `[x]` as items complete. Each section
 > ends with a `Definition of Done` so we don't ship half-baked.
 
-**Last updated:** 2026-05-23
+**Last updated:** 2026-07-03
 **Project lead:** Angel
 **Protocol design:** Angel
 
@@ -13,85 +13,92 @@
 
 ### Phase 1 — Sphinx packet (3 weeks)
 
-- [ ] **A1.1** `hybrid::encapsulate(rng, x25519_pk, mlkem_pk) → (α, α', shared)`
-- [ ] **A1.2** `hybrid::decapsulate(x25519_sk, mlkem_sk, α, α') → shared`
-- [ ] **A1.3** Constant-time HKDF expansion of `shared` into 4 sub-keys
-- [ ] **A1.4** `Header::build(route, payload, rng) → [u8; HEADER_SIZE]`
-- [ ] **A1.5** `Header::unwrap_at_hop(hop_keys) → (next_routing, next_header)`
-- [ ] **A1.6** Poly1305 MAC chain over header (`γ` field)
-- [ ] **A1.7** Re-blinding of `(α, α*)` per-hop
-- [ ] **A1.8** Folded-KEM construction (commitment in header, CT in payload)
-- [ ] **A1.9** `GothamPacket::wrap(payload, route, rng) → [u8; PACKET_SIZE]`
-- [ ] **A1.10** `GothamPacket::unwrap_at_relay(pkt, keys) → Action`
-- [ ] **A1.11** Padding strategy (zero-fill + length-hiding)
-- [ ] **A1.12** Unit tests: round-trip wrap/unwrap with 3-5 hops
-- [ ] **A1.13** Property tests with `proptest`: random payloads, random routes
-- [ ] **A1.14** Fuzz harness with `cargo-fuzz`: unwrap on malformed packets must never panic or leak via timing
-- [ ] **A1.15** Benchmarks: wrap, unwrap, full 3-hop round-trip on local loopback
+- [x] **A1.1** `hybrid::encapsulate(rng, x25519_pk, mlkem_pk) → (α, α', shared)` (X25519 + ML-KEM-768 hybrid KEM per hop)
+- [x] **A1.2** `hybrid::decapsulate(x25519_sk, mlkem_sk, α, α') → shared`
+- [x] **A1.3** Constant-time HKDF expansion of `shared` into 4 sub-keys
+- [x] **A1.4** `Header::build(route, payload, rng) → [u8; HEADER_SIZE]`
+- [x] **A1.5** `Header::unwrap_at_hop(hop_keys) → (next_routing, next_header)`
+- [x] **A1.6** Poly1305 MAC chain over header (`γ` field)
+- [x] **A1.7** Re-blinding of `(α, α*)` per-hop
+- [x] **A1.8** Folded-KEM construction (commitment in header, CT in payload)
+- [x] **A1.9** `GothamPacket::wrap(payload, route, rng) → [u8; PACKET_SIZE]` (Sphinx v0.2, fixed 2048-byte packets)
+- [x] **A1.10** `GothamPacket::unwrap_at_relay(pkt, keys) → Action`
+- [x] **A1.11** Padding strategy (zero-fill + length-hiding)
+- [x] **A1.12** Unit tests: round-trip wrap/unwrap with 3-5 hops
+- [x] **A1.13** Property tests with `proptest`: random payloads, random routes
+- [ ] **A1.14** Fuzz harness with `cargo-fuzz`: unwrap on malformed packets must never panic or leak via timing *(planned)*
+- [x] **A1.15** Benchmarks: wrap, unwrap, full 3-hop round-trip on local loopback
+- [x] **A1.16** Per-hop payload protected by LIONESS wide-block non-malleable PRP (Anderson-Biham 4-round) — replaced the earlier XOR / per-hop-AEAD branch payload; defeats tagging
+- [x] **A1.17** Reject low-order X25519 points (`was_contributory`) — fixes the old M-1 Sphinx low-order-points finding
 
 **DoD Phase 1.** Round-trip works for 3-5 hops in unit tests, fuzz finds no panics in 1 h of run, wrap+unwrap < 1 ms on M-series Mac / Ryzen.
 
 ### Phase 2 — Relay binary (2 weeks)
 
-- [ ] **A2.1** `gotham-relay` standalone binary with CLI args (config, keys)
-- [ ] **A2.2** `ReplayCache` (LRU + 5-min TTL, bounded size)
-- [ ] **A2.3** Poisson delay scheduler (per-hop, configurable λ)
-- [ ] **A2.4** Stateless `Relay::process(packet) → Forward | Drop | DeliverLocal`
-- [ ] **A2.5** QUIC listener (`quinn`) on port 443 UDP
-- [ ] **A2.6** Noise XK per-link with rekey every 1 h
-- [ ] **A2.7** Graceful shutdown + key rotation hook
-- [ ] **A2.8** Prometheus metrics endpoint (counters only — no per-packet data, no IPs)
-- [ ] **A2.9** `systemd` service file + minimal-rights user account template
-- [ ] **A2.10** Sandboxing (`seccomp-bpf` for syscall filtering + chroot)
-- [ ] **A2.11** Reproducible build (Cargo workspace `release` profile already pinned)
+- [x] **A2.1** `gotham-relay` standalone binary with CLI args (config, keys)
+- [x] **A2.2** `ReplayCache` (5-min gamma-MAC replay cache, bounded size)
+- [x] **A2.3** Poisson delay scheduler (Loopix-style, per-hop, configurable λ)
+- [x] **A2.4** Stateless `Relay::process(packet) → Forward | Drop | DeliverLocal`
+- [x] **A2.5** QUIC listener (`quinn`) on port 443 UDP
+- [x] **A2.6** Noise XK per-link with rekey every 1 h
+- [x] **A2.7** Graceful shutdown + key rotation hook
+- [x] **A2.8** Prometheus metrics endpoint (counters only — no per-packet data, no IPs)
+- [x] **A2.9** `systemd` service file + minimal-rights user account template
+- [ ] **A2.10** Sandboxing (`seccomp-bpf` for syscall filtering + chroot) *(planned)*
+- [x] **A2.11** Reproducible build (Cargo workspace `release` profile already pinned)
 
-**DoD Phase 2.** Three relays running on three VPS in three countries; client can complete a round-trip; metrics show no PII; relay crash-restart doesn't lose any forwardable state (because there is none).
+**DoD Phase 2.** Three relays running on three VPS in three countries; client can complete a round-trip; metrics show no PII; relay crash-restart doesn't lose any forwardable state (because there is none). *(Status: a directory authority + 3 relays are online, but all 3 currently sit on a single /16, so the global path-diversity guard correctly refuses to build a route — no real message has yet transited the live network. Not met until relays span multiple /16s.)*
 
 ### Phase 3 — Directory authority + path selection (2 weeks)
 
-- [ ] **A3.1** `RelayDescriptor` struct + serde for signed JSON
-- [ ] **A3.2** `Directory::verify(doc, authority_pubkey)` → `bool`
-- [ ] **A3.3** `gotham-directory` static-file publisher (single Ed25519 sig)
-- [ ] **A3.4** Path-selection algorithm with operator + AS diversity (§5.2)
-- [ ] **A3.5** Per-mode hop count + delay (`low-latency`, `balanced`, `paranoid`)
-- [ ] **A3.6** Local directory cache + last-known-good fallback
-- [ ] **A3.7** Anonymous directory refresh (fetch through Gotham itself)
-- [ ] **A3.8** N-of-M multi-sig directory (deferred to v2 — note for spec)
+- [x] **A3.1** `RelayDescriptor` struct + serde for signed JSON
+- [x] **A3.2** `Directory::verify(doc, authority_pubkey)` → `bool`
+- [x] **A3.3** `gotham-directory` publisher (single Ed25519 sig)
+- [x] **A3.4** Path-selection algorithm with GLOBAL diversity — distinct operator + distinct network (/16 for IPv4, /48 for IPv6) across the whole path, entry ≠ exit (§5.2)
+- [x] **A3.5** Per-mode hop count + delay (`low-latency`, `balanced`, `paranoid`)
+- [x] **A3.6** Local directory cache + last-known-good fallback
+- [x] **A3.7** Anonymous directory refresh (fetch through Gotham itself)
+- [x] **A3.8** Self-forming signed directory + directory authority (enroll / heartbeat / proof-of-possession liveness probe)
+- [x] **A3.9** k-of-n authority attestation anchoring the decentralized P2P gossip transport (relays discover each other)
 
 **DoD Phase 3.** Client picks valid paths from a signed directory; reject expired or wrong-signature directories; refresh works through the mixnet.
 
 ### Phase 4 — App integration (2 weeks)
 
-- [ ] **A4.1** Tauri command `gotham_send(payload, recipient_fp)` wraps + dispatches
-- [ ] **A4.2** Recipient-side receive loop subscribes to entry-relay socket
-- [ ] **A4.3** Migrate `send_message` to call Gotham instead of SMP-over-Tor
-- [ ] **A4.4** Migrate `set_own_profile` broadcast over Gotham
-- [ ] **A4.5** Frontend setting: transport = `gotham` | `tor-legacy` | `clearnet`
-- [ ] **A4.6** Backward-compat shim — accept inbound from old SMP for N months
-- [ ] **A4.7** Migration UX: progress bar during first-time Gotham bootstrap
+- [x] **A4.1** Tauri command `gotham_send(payload, recipient_fp)` wraps + dispatches
+- [x] **A4.2** Recipient-side receive loop subscribes to entry-relay socket
+- [x] **A4.3** `send_message` routes over Gotham (sole transport since v0.7; Tor/Lokinet/SMP removed) — real user sends now flow through the cover-traffic queue
+- [x] **A4.4** Migrate `set_own_profile` broadcast over Gotham
+- [x] **A4.5** Gotham is the sole transport — the legacy transport toggle and its `tor-legacy` / `clearnet` options were removed in v0.7
+- [x] **A4.6** Gotham mailbox for store-and-forward offline delivery — deposit done OVER the mixnet; recipients spread across mailbox hosts via HRW hashing
+- [x] **A4.7** Migration UX: progress bar during first-time Gotham bootstrap
+- [x] **A4.8** SURB (single-use reply blocks) enabling anonymous mailbox fetch
 
-**DoD Phase 4.** A real DM message goes end-to-end via Gotham in < 300 ms median; old SMP path still functional during the transition window.
+**DoD Phase 4.** A real DM message goes end-to-end via Gotham in < 300 ms median. *(Not yet met on the live network: no message has transited it — see Phase 2 status.)*
 
 ### Phase 5 — Cover traffic & metadata hygiene (1 week)
 
-- [ ] **A5.1** `CoverScheduler` with `λ` configurable per mode
-- [ ] **A5.2** Drop packets (sink relay) + Loop packets (self-loop)
-- [ ] **A5.3** Indistinguishability of drop vs real at the wire level
-- [ ] **A5.4** Battery-aware degradation (mobile)
-- [ ] **A5.5** Backgrounded-app pause + resume
+- [x] **A5.1** `CoverScheduler` with `λ` configurable per mode (continuous cover traffic; real user sends routed through the cover-traffic queue)
+- [x] **A5.2** Drop packets (sink relay) + Loop packets (self-loop)
+- [x] **A5.3** Indistinguishability of drop vs real at the wire level
+- [ ] **A5.4** Battery-aware degradation (mobile) *(planned — mobile clients not shipped; desktop only)*
+- [ ] **A5.5** Backgrounded-app pause + resume *(planned — mobile clients not shipped)*
 
-**DoD Phase 5.** Wire observer cannot tell if a user is idle or actively chatting beyond a 30-second window.
+**DoD Phase 5.** Wire observer cannot tell if a user is idle or actively chatting beyond a 30-second window. *(Holds once a live network spanning multiple /16s exists; today it is not yet real-world proven.)*
 
-### Phase 6 — Pluggable transports (2 weeks)
+### Phase 6 — Pluggable transports (planned / not shipped)
 
-- [ ] **A6.1** Default: QUIC over UDP/443
-- [ ] **A6.2** Fallback: TLS 1.3 over TCP/443 with realistic SNI
-- [ ] **A6.3** obfs4-like: random-looking bytes after handshake
-- [ ] **A6.4** meek-CDN: HTTPS to a domain-fronted CDN (CloudFront / Fastly)
-- [ ] **A6.5** Adaptive selection — try each in order at startup
-- [ ] **A6.6** Detection-evasion test suite against `nDPI`, `Suricata`
+> The real Gotham link layer today is Noise XK over QUIC (A6.1). The obfuscation /
+> domain-fronting transports below are future work — none are shipped yet.
 
-**DoD Phase 6.** Client survives a deliberately blocked UDP/443 environment, falls back transparently, and the user notices only a 1-2 s extra startup.
+- [x] **A6.1** Default: QUIC over UDP/443 (Noise XK per-link)
+- [ ] **A6.2** Fallback: TLS 1.3 over TCP/443 with realistic SNI *(planned / not shipped)*
+- [ ] **A6.3** obfs4-like: random-looking bytes after handshake *(planned / not shipped)*
+- [ ] **A6.4** meek-CDN: HTTPS to a domain-fronted CDN (CloudFront / Fastly) *(planned / not shipped)*
+- [ ] **A6.5** Adaptive selection — try each in order at startup *(planned / not shipped)*
+- [ ] **A6.6** Detection-evasion test suite against `nDPI`, `Suricata` *(planned / not shipped)*
+
+**DoD Phase 6.** Client survives a deliberately blocked UDP/443 environment, falls back transparently, and the user notices only a 1-2 s extra startup. *(Future — pluggable transports not yet shipped.)*
 
 ### Phase 7 — Hardening & audit prep (2 weeks)
 
@@ -106,6 +113,8 @@
 **DoD Phase 7.** External reviewer can read the code top-down without needing to ask "what does this mean".
 
 ### Phase 8 — Mobile push relay (2 weeks)
+
+> Future — mobile clients are not shipped (desktop only: Linux/macOS/Windows).
 
 - [ ] **A8.1** `gotham-push-relay` separate binary
 - [ ] **A8.2** Receives final-hop Gotham packets destined to push-enrolled users
@@ -157,12 +166,12 @@
 
 ## TRACK C · Security & cryptography review
 
-- [ ] **C1** Internal review against the threat model (§9 of `GOTHAM.md`)
-- [ ] **C2** Static analysis: `cargo-audit`, `cargo-deny`, `cargo-vet` clean
+- [x] **C1** Internal review against the threat model (§9 of `GOTHAM.md`) — internal audit 2026-05-25 plus several multi-agent adversarial reviews; all confirmed findings fixed
+- [x] **C2** Static analysis: `cargo-audit` clean except 1 accepted risk — RSA-Marvin (RUSTSEC-2023-0071) via `openidconnect`, unreachable path, documented (`cargo-deny` / `cargo-vet` still to wire in)
 - [ ] **C3** Dependency review — every transitive dep audited or pinned
 - [ ] **C4** Constant-time verification (`dudect` or similar)
 - [ ] **C5** Formal verification of critical paths (Sphinx unwrap, MAC chain)
-- [ ] **C6** External audit engagement — quote 3 firms:
+- [ ] **C6** External audit engagement — NOT yet done (no external/third-party audit has taken place; only the internal audit + adversarial reviews under C1). Quote 3 firms:
   - [ ] Synacktiv (FR)
   - [ ] Quarkslab (FR)
   - [ ] NCC Group (UK / US)

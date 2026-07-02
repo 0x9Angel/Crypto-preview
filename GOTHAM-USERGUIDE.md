@@ -7,7 +7,7 @@ If you operate a Gotham relay (i.e. you run your own infrastructure
 to participate in the network), read [GOTHAM-DEPLOYMENT.md](GOTHAM-DEPLOYMENT.md)
 and [GOTHAM-OPSEC.md](GOTHAM-OPSEC.md) instead.
 
-**Last reviewed:** 2026-05-25
+**Last reviewed:** 2026-07-03
 
 ---
 
@@ -15,47 +15,63 @@ and [GOTHAM-OPSEC.md](GOTHAM-OPSEC.md) instead.
 
 Gotham is the network layer that carries your encrypted messages.
 End-to-end encryption (Signal protocol) protects the *content* of
-what you write. Gotham protects the *metadata* — the fact that you
-sent a message, when you sent it, and to whom. It is a low-latency
-post-quantum mixnet, which means messages are wrapped in fixed-size
-packets, routed through several volunteer-operated relays with
-small random delays, and re-padded with cover traffic so an observer
-cannot tell when you are active.
+what you write. Gotham is *designed* to protect the *metadata* — the
+fact that you sent a message, when you sent it, and to whom. It is a
+low-latency post-quantum mixnet, which means messages are wrapped in
+fixed-size packets, routed through several volunteer-operated relays
+with small random delays, and re-padded with cover traffic so an
+observer cannot easily tell when you are active.
 
-Crypto can also send messages over Tor v3 or Lokinet. Gotham is the
-recommended default starting with v1.2.x but remains in beta until
-the external audit completes (target: 2027). For production-critical
-communication today, prefer Tor v3.
+Gotham is now the **only** transport in Crypto. Earlier previews
+could also route over Tor or Lokinet; those transports were removed
+in v0.7 and Gotham carries all traffic.
+
+> **Honest status (please read):** The *content* protection above
+> (end-to-end encryption) is solid and works today. The *metadata*
+> protection depends on a live network of relays spread across many
+> different networks and hosting providers. At the time of writing
+> that network is not yet live at scale — only a directory authority
+> and a handful of relays are online, and they sit too close together
+> on the network for the diversity rules to build a real route. So
+> **real-world metadata anonymity is not yet delivered.** It becomes
+> real once relays exist across many independent networks *and* an
+> independent external audit has been completed. Treat Gotham's
+> metadata protection as a design goal that is being brought online,
+> not as a guarantee you can rely on today.
 
 ---
 
-## Choosing a transport
+## The transport
 
-In the application, go to **Settings → Profile → Transport**. You
-will see three radio options:
+There is nothing to choose here anymore. Crypto ships a single
+transport — Gotham — and every message travels over it. Previous
+previews let you pick between Gotham, Tor, and Lokinet; those extra
+transports were removed in v0.7, so there is no transport selector in
+current builds.
 
-| Option | When to choose it |
-|---|---|
-| **Gotham** (default) | Best for general use. Low latency, post-quantum, metadata-hiding. Marked "beta" until the external audit completes. |
-| **Tor v3** | Choose if your threat model assumes a near-global adversary or you need the most-audited anonymity transport available. Higher latency. |
-| **Lokinet** | Niche option for environments where Lokinet is already deployed. |
+Gotham's link layer runs Noise XK over QUIC. It is marked "beta"
+until an independent external audit completes.
 
-You can switch transport at any time. Existing conversations continue
-to work; new messages use the newly-selected transport.
-
-> **Note:** Switching transport does not change *who* can read your
-> messages — that is the end-to-end encryption layer, which is the
-> same regardless of transport. Switching transport changes only
-> *who can see that a message was sent*.
+> **Note:** The transport is not what keeps your messages private
+> *in content* — that is the end-to-end encryption layer, which
+> applies to every message. Gotham's job is to hide *who can see
+> that a message was sent* (its metadata), which, as noted above,
+> is a design goal that is still being brought online.
 
 ---
 
 ## What Gotham hides, and what it does not hide
 
-### What Gotham hides
+### What Gotham is designed to hide
+
+*(These properties hold once a live network of relays spanning many
+independent networks exists. Today that network is not yet live at
+scale, so the items below are the design intent, not a delivered,
+real-world-proven guarantee.)*
 
 - The fact that you sent a message at a particular instant.
-- Who you sent it to (the recipient is opaque to the network).
+- Who you sent it to (the recipient is meant to be opaque to the
+  network).
 - Your usage pattern (frequency, time-of-day, conversation graph).
 - The size of your messages (all packets are 2048 bytes).
 
@@ -75,9 +91,12 @@ to work; new messages use the newly-selected transport.
 - Passive network observers (your ISP, café Wi-Fi, network taps).
 - Single-relay compromise at any tier.
 - Replay attacks (5-minute MAC cache per relay).
-- Tagging attacks (Sphinx MAC chain).
+- Tagging attacks (each hop's payload is protected by a
+  non-malleable wide-block cipher, so tampering with a packet
+  corrupts it rather than marking it).
 - Quantum adversaries harvesting traffic today to decrypt later
-  (post-quantum hybrid key exchange).
+  (post-quantum hybrid key exchange: X25519 combined with
+  ML-KEM-768 at each hop).
 
 ### Threats Gotham does NOT resist
 
@@ -104,10 +123,19 @@ the application performs a one-time bootstrap:
 2. Downloads the signed Gotham directory document. This lists the
    currently-active relays and is signed by the directory authority.
 3. Validates the signature against the pinned authority public key.
-4. Selects three initial relays for path construction.
+4. Attempts to select three relays for path construction, enforcing
+   the diversity rules (the three relays must sit on distinct
+   networks and be run by distinct operators, with the entry relay
+   different from the exit).
 
 You will see a progress bar during this bootstrap. Total time is
 typically 2-5 seconds on a desktop, longer on a slow network.
+
+> **Note:** Because the live relay set is currently too small and
+> too clustered on the network, path construction may not yet
+> succeed on the public network — the diversity rules will correctly
+> refuse to build a route rather than build an unsafe one. This is
+> expected while the network is still being brought online.
 
 ---
 
@@ -140,8 +168,7 @@ public key**.
 ## Sending a message
 
 Once both sides have exchanged Gotham keys, sending a message is
-identical to sending via Tor or any other transport: open the
-conversation, type, hit send.
+just like any chat app: open the conversation, type, hit send.
 
 Under the hood:
 
@@ -157,20 +184,24 @@ Under the hood:
 5. The recipient's application unseals, decrypts, and renders the
    message.
 
-Median round-trip on a healthy network is 100-300 ms (compared to
-800-2000 ms for Tor v3). This is achieved by tuning the cover
-traffic and Poisson delay parameters for chat-sized payloads, not
-file transfer.
+On a healthy network the target median round-trip is 100-300 ms
+(for comparison, Tor typically runs 800-2000 ms). This is achieved
+by tuning the cover traffic and Poisson delay parameters for
+chat-sized payloads, not file transfer. These are design targets;
+end-to-end latency on the public network cannot be measured until a
+live, diverse relay set is online.
 
 ---
 
 ## Cover traffic
 
-When Gotham is enabled, your client emits a small stream of
-indistinguishable "cover" packets at random intervals, even when you
-are not actively sending real messages. This is what makes it
-impossible for a network observer to tell when you are typing and
-when you are idle.
+Your client emits a small stream of indistinguishable "cover"
+packets at random intervals, even when you are not actively sending
+real messages. Real messages are slotted into this same stream, so
+the aim is that a network observer cannot tell when you are typing
+and when you are idle. (This property depends on a live, diverse
+relay network to be meaningful in the real world — see the honest
+status note near the top of this guide.)
 
 Default cover-traffic mode is **balanced**: roughly one cover packet
 per 30 seconds on average. You can adjust this in **Settings →
@@ -183,10 +214,9 @@ Privacy → Cover traffic level**:
 | **paranoid** | 1 packet / 5 s | High-threat environments, willing to accept higher bandwidth |
 
 Cover traffic uses approximately 5-50 KB per hour depending on
-mode. On metered connections this is generally invisible. On
-battery-constrained mobile devices, the application automatically
-degrades to a quieter rate (see [CHECKLIST.md](CHECKLIST.md) item
-1.3.7).
+mode. On metered connections this is generally invisible. (Crypto
+currently ships desktop clients only — Linux, macOS, and Windows;
+there are no mobile clients yet.)
 
 ---
 
@@ -198,9 +228,8 @@ the recipient side.
 
 Large files (over a few megabytes) are slow over Gotham — this is
 intentional. The mixnet is tuned for interactive chat, not bulk
-transfer. For large attachments, the application transparently
-falls back to a Tor Hidden Service direct connection, with the
-fallback indicated by a small icon next to the file in the chat.
+transfer, and all attachments travel over Gotham like everything
+else.
 
 ---
 
@@ -212,9 +241,9 @@ Most common cause: the directory authority is unreachable from your
 current network. Verify:
 
 - Your internet connection is up.
-- UDP/443 outbound is not blocked by a corporate firewall (try
-  switching to **Tor v3** transport as a workaround while you
-  investigate).
+- UDP outbound (QUIC) is not blocked by a corporate firewall.
+  Gotham's link layer is Noise XK over QUIC, which needs outbound
+  UDP; some networks block it.
 - The system clock is reasonably accurate. The directory has
   `valid_after` / `valid_until` timestamps and rejects out-of-range
   clocks.
@@ -222,9 +251,19 @@ current network. Verify:
 ### "All three hops failed"
 
 A path was selected but at least one relay rejected the connection.
-The application automatically retries with a fresh path; if three
-retries in a row fail, the application falls back to the last
-working transport.
+The application automatically retries with a fresh path. Because
+Gotham is the only transport, there is no other transport to fall
+back to; if retries keep failing, the message stays queued and is
+retried later.
+
+### "No usable path" / "Not enough diverse relays"
+
+The directory does not currently list enough relays on distinct
+enough networks to satisfy the diversity rules, so no safe path can
+be built. This is expected while the public relay network is still
+being brought online (see the honest status note near the top of
+this guide) and is not a bug in your client — the client is
+correctly refusing to build an unsafe route.
 
 ### Messages are sometimes delayed
 
@@ -251,8 +290,12 @@ To get the most out of Gotham:
 - [ ] Use a strong, unique master password (Argon2id-protected,
       12+ characters, mixed character classes).
 - [ ] Pair Gotham with full-disk encryption on your device.
-- [ ] Verify Gotham public keys out-of-band with new contacts
-      before relying on the channel.
+- [ ] Verify each contact's identity out-of-band using the 60-digit
+      **safety number** shown in the conversation (compare it in
+      person or over another trusted channel). The app forces this
+      step for new contacts, marks a contact "verified" once you
+      confirm, and alerts you if a contact's key later changes —
+      which can indicate a machine-in-the-middle attempt.
 - [ ] Periodically check the directory authority pubkey fingerprint
       against the canonical value published at
       `https://github.com/0x9Angel/Crypto/blob/main/GOTHAM.md`.

@@ -1,6 +1,6 @@
 # Security policy
 
-Last reviewed: 2026-05-25.
+Last reviewed: 2026-07-03.
 
 ## Reporting a vulnerability
 
@@ -18,7 +18,9 @@ severity in your initial report.
 A useful disclosure email includes:
 
 - **Affected component** — crypto-store, crypto-agent, crypto-gotham,
-  crypto-server, crypto-tauri, or "frontend / webview".
+  crypto-tauri, or "frontend / webview". (The `crypto-server` and
+  `crypto-cli` crates were removed in v0.7 when Gotham became the sole
+  transport; reports against them are obsolete.)
 - **Reproduction steps** — minimal, with a code example or test case
   when applicable.
 - **Impact assessment** — what an attacker can do with the
@@ -57,10 +59,13 @@ announced in `CHANGELOG.md` and on the project site.
 ### Contact channels
 
 - **Email**: `Crypto.app.organisation@protonmail.com`
-- **PGP fingerprint**: *(production PGP key pending — track via
+- **PGP fingerprint**: *(production PGP key still pending — track via
   `CHANGELOG.md` for the announcement)*
-- **.onion v3 mirror**: *(pending — for high-risk sources who cannot
-  safely route email through their network)*
+- **Gotham mailbox mirror**: *(planned — for high-risk sources who
+  cannot safely route email through their network; will be delivered
+  over the mixnet once a live relay network spanning multiple /16s is
+  online. Note: the project ships Gotham as its sole transport and no
+  longer operates a Tor .onion service.)*
 
 ### Anti-spam note
 
@@ -116,6 +121,22 @@ upgrade:
 Resolution commit: `75c0d57` on `main`. See `SECURITY-AUDIT.md`
 finding H-3.
 
+### Closed: M-1 — Sphinx low-order X25519 points
+
+The internal audit's Sphinx finding M-1 (a hop could inject a
+low-order X25519 point to force a predictable shared secret) is
+**fixed**: Gotham now rejects low-order / non-contributory X25519
+points during hop key agreement. This obsoletes the earlier
+`was_contributory` gap.
+
+### Obsolete: `crypto-server` findings
+
+Advisories filed against the `crypto-server` and `crypto-cli` crates
+are **obsolete**. Both crates — along with the Tor, Lokinet, and SMP
+federation transports — were removed in v0.7 (2026-05-30) when Gotham
+became the sole transport. There is no longer a federation/relay
+server component in the product to attack.
+
 ---
 
 ## Unmaintained dependencies (tracked, not exploitable)
@@ -143,12 +164,20 @@ fix is adopted promptly when it lands.
 | Date | Auditor | Type | Outcome | Report |
 |---|---|---|---|---|
 | 2026-05-25 | Internal (Angel) | Full workspace review + cargo audit | 10 patches landed, 3 CVE closed, 1 risk accepted | `SECURITY-AUDIT.md` |
+| 2026-05–07 | Internal (multi-agent adversarial reviews) | Iterative red-team of Gotham + app | Confirmed findings (incl. M-1 low-order points, Sphinx tagging, path-diversity, cover/SURB data-loss) all fixed | tracked in commits |
 
-A third-party audit is **the gating event** for the project's
-public production-readiness claim. See `THREAT-MODEL.md` § 10 for
-the full set of conditions. No third-party audit is currently
-scheduled, because pricing and timing for a Trail-of-Bits-class
-engagement depend on funding milestones not yet hit.
+No **external, independent third-party audit has been performed
+yet**. All audits to date are internal: the 2026-05-25 workspace
+review plus several multi-agent adversarial reviews whose confirmed
+findings were all fixed. A third-party audit is **the gating event**
+for the project's public production-readiness claim. See
+`THREAT-MODEL.md` § 10 for the full set of conditions. No third-party
+audit is currently scheduled, because pricing and timing for a
+Trail-of-Bits-class engagement depend on funding milestones not yet
+hit. Note also that Gotham's network-level anonymity remains
+**theoretical** until a live relay network spanning multiple /16s
+exists and is externally reviewed; content protection (E2E) is solid
+and testable today.
 
 ---
 
@@ -180,8 +209,9 @@ disclosure:
   into giving me their password" are operational concerns, not
   vulnerabilities.
 - **Vulnerabilities in unsupported configurations.** The `direct`
-  transport (without Tor / Gotham) is documented as testing-only and
-  is not a supported deployment mode.
+  transport (bypassing Gotham) is documented as testing-only and is
+  not a supported deployment mode. Gotham is the sole supported
+  transport.
 - **Issues in third-party WebView implementations.** WebKitGTK / WKWebView
   / WebView2 are OS-supplied components. Their vulnerabilities are
   the OS vendor's responsibility; we inherit them and patch when the

@@ -8,20 +8,30 @@ If you are a regular Crypto end-user, you do not need to read this
 document — the application embeds a small client-side relay
 automatically. See [GOTHAM-USERGUIDE.md](GOTHAM-USERGUIDE.md).
 
-**Status:** Pre-GA. The public Gotham network is not yet deployed.
-This document describes the intended deployment model for the
-production network, targeted late 2027.
+**Status:** Pre-GA. An early deployment now exists: a directory
+authority plus 3 relays are online and liveness-probed (proof-of-
+possession). Routing is NOT yet operational, however — all 3 relays
+currently sit on a single /16, and the path-diversity guard (which
+requires distinct operators and distinct networks across the whole
+path) correctly refuses to build a route. No real message has yet
+transited the live network. Network-level anonymity therefore
+remains theoretical until relays span multiple /16 blocks and an
+external audit has been completed. This document describes the
+deployment model for the production network.
 
-**Last reviewed:** 2026-05-25
+**Last reviewed:** 2026-07-03
 
 ---
 
 ## Why operate a relay
 
 Relays are the backbone of the mixnet. The privacy properties of
-Gotham (metadata-hiding, traffic-analysis resistance) hold only as
-long as the relay pool is diverse, independent, and large enough
-that no single party controls a majority.
+Gotham (metadata-hiding, traffic-analysis resistance) hold only
+once the relay pool is diverse, independent, and large enough that
+no single party controls a majority — and only once relays are
+spread across multiple networks (/16 blocks) so that a path can
+actually be built. Until then these properties are theoretical, not
+real-world proven.
 
 You should consider running a relay if you are:
 
@@ -62,7 +72,8 @@ a small VPS.
 
 ### Network
 
-- A public IPv4 address (IPv6-only is not yet supported in v0.1).
+- A public IPv4 or IPv6 address (path diversity is enforced per /16
+  for IPv4 and per /48 for IPv6).
 - Open inbound UDP/443 and TCP/443 for the relay protocol.
 - Open outbound to peers in the directory.
 - A reverse DNS record matching your hostname is recommended for
@@ -70,8 +81,10 @@ a small VPS.
 
 ### Hosting providers
 
-Diversity matters. The path selector rejects two consecutive hops
-from the same /16 IPv4 block or the same declared operator. For the
+Diversity matters. The path selector enforces GLOBAL diversity: it
+rejects any path that reuses a declared operator or a network block
+(/16 for IPv4, /48 for IPv6) anywhere across the whole route, and it
+requires the entry relay to differ from the exit relay. For the
 public network we aim for relays across at least:
 
 - 3 distinct legal jurisdictions
@@ -153,10 +166,11 @@ Reproducible-build verification is documented separately in
 
 A Gotham relay has two long-term keys:
 
-- An **X25519 KEM key** used by clients to encapsulate to this relay
-  in the Sphinx header.
+- A **hybrid KEM key** (X25519 + ML-KEM-768, post-quantum) used by
+  clients to encapsulate to this relay in the Sphinx header. Low-
+  order X25519 points are rejected on both sides.
 - An **Ed25519 identity key** used for signing the relay's own
-  attestations.
+  attestations and directory heartbeats.
 
 Generate both with the bundled tool:
 
@@ -245,19 +259,30 @@ provider's network ACL is blocking the port; contact support.
 
 ### 7. Submit the relay to the directory
 
-Once the production directory authority is live (target: Q1 2027):
+A directory authority is already online for the early network.
+Enroll against it (the URL and enrol token are distributed through
+the relay-onboarding channel — never commit a real token to a repo):
 
 ```bash
 gotham-relay submit \
   --config /etc/gotham-relay/config.toml \
-  --directory-url https://directory.gotham.<production-domain>/submit
+  --directory-url https://<authority-host>:8443/submit \
+  --enroll-token <token>
 ```
 
 The submission contains the public keys, the declared tier, the
-declared country and operator, and a self-signed attestation. The
-directory authority reviews it (currently manual, with plans for a
-vetted automated workflow), and on approval the relay appears in
-the next signed directory snapshot.
+declared country and operator, and a self-signed attestation. Once
+enrolled, the relay participates in the self-forming signed
+directory: it sends periodic heartbeats and answers a proof-of-
+possession liveness probe, and on approval it appears in the next
+signed directory snapshot. Relays also discover one another over a
+decentralized peer-to-peer gossip transport anchored by k-of-n
+authority attestation.
+
+Note: enrolling does not by itself make your relay usable in a
+path. Until the network spans multiple /16 blocks, the path-
+diversity guard will refuse to build routes through it (see
+**Status** above).
 
 ---
 
@@ -280,7 +305,7 @@ Example response:
   "packets_dropped_bad_mac": 3,
   "packets_dropped_malformed": 0,
   "replay_cache_len": 4567,
-  "version": "1.2.1"
+  "version": "2.1.0"
 }
 ```
 
@@ -323,7 +348,7 @@ the cache of last-known-good directory entries during this window.
 
 ### Key rotation
 
-X25519 KEM keys are rotated annually (or sooner if compromise is
+The hybrid KEM key is rotated annually (or sooner if compromise is
 suspected). To rotate:
 
 ```bash

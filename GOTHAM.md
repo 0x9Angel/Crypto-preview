@@ -1,8 +1,19 @@
-# Gotham Protocol — Specification v0.1
+# Gotham Protocol — Specification v0.2
 
 > **Status:** Draft — pre-alpha. Subject to breaking changes until v1.0.
 > **Authors:** Angel
 > **License:** TBD (recommended AGPLv3 + commercial exception)
+> **Last updated:** 2026-07-03 (v0.7 product line — Gotham is the sole transport)
+
+> **Honest posture:** Message-content protection (E2E) is solid and testable.
+> Network-level anonymity is CURRENTLY THEORETICAL: a directory authority plus
+> 3 relays are online, but all 3 sit on a single /16, so the (correct)
+> path-diversity guard (§5.2) refuses to build a route — no real message has
+> yet transited the live network. Anonymity claims below hold ONCE a live
+> network spanning multiple /16s exists AND an external audit has been done;
+> neither is true yet. Only an internal audit (2026-05-25) plus several
+> multi-agent adversarial reviews (confirmed findings all fixed) have occurred —
+> no external/third-party audit has happened.
 
 ---
 
@@ -34,10 +45,12 @@
   packets.
 - **G5.** Post-quantum hybrid security (X25519 + ML-KEM-768) from day 1.
 - **G6.** Fixed-size packets so traffic analysis cannot infer message length.
-- **G7.** Pluggable transports (QUIC default; TLS 1.3, obfs4-like and meek
-  fallbacks) to survive aggressive DPI.
+- **G7.** Link layer is **Noise XK over QUIC** (TLS 1.3 fallback). Pluggable
+  transports for DPI evasion (obfs4-like, meek-CDN fronting) are **planned /
+  not shipped** — they are a future goal, not a current capability.
 - **G8.** Stateless relays — beyond an in-memory replay cache, relays hold no
-  persistent state that could be subpoenaed or seized.
+  persistent state that could be seized. (The optional Gotham mailbox, §8.4,
+  is a separate store-and-forward role and is not a base relay obligation.)
 
 ### Non-goals
 
@@ -70,9 +83,10 @@ All primitives have ≥ 5 years of public review. No bespoke crypto.
 
 ---
 
-## §3 · Packet wire format
+## §3 · Packet wire format (Sphinx v0.2)
 
-A Gotham packet is **exactly 2048 bytes** after construction.
+A Gotham packet is **exactly 2048 bytes** after construction (Sphinx v0.2,
+fixed-size).
 
 ```
 ┌──────────────────────────────────────────────────────────────────┐
@@ -80,17 +94,19 @@ A Gotham packet is **exactly 2048 bytes** after construction.
 ├──────────────────────────────────┬───────────────────────────────┤
 │  HEADER 384 bytes                │       PAYLOAD 1664 bytes      │
 │                                  │                               │
-│  α   (32 B)   X25519 ephem pk    │  Three-layer AEAD nesting:    │
-│  α'  (1088 B fixed-but-folded)*  │  Enc_K1( Enc_K2( Enc_K3(      │
-│  β   (≤ 256 B routing block)     │    SealedSender (             │
-│  γ   (16 B Poly1305 MAC)         │      DoubleRatchet (msg)      │
-│                                  │    ) ) ) )                    │
-│  *ML-KEM-768 CT is 1088 B; we    │  + zero padding to fill 1664  │
-│   compress via XOR-with-PRF      │                               │
-│   (see §4.2) into the 320 B      │                               │
-│   header budget. The full CT    │                               │
-│   is referenced from a 32 B      │                               │
-│   commitment α* in α'.           │                               │
+│  α   (32 B)   X25519 ephem pk    │  Per-hop payload protected by │
+│  α'  (1088 B fixed-but-folded)*  │  a LIONESS wide-block         │
+│  β   (≤ 256 B routing block)     │  non-malleable PRP            │
+│  γ   (16 B gamma-MAC)            │  (Anderson-Biham 4-round),    │
+│                                  │  wrapping:                    │
+│  *ML-KEM-768 CT is 1088 B; we    │    SealedSender (             │
+│   fold it (see §4.2) so only a   │      DoubleRatchet (msg)      │
+│   32 B commitment α* rides in    │    )                          │
+│   the 384 B header budget. The   │  + padding to fill 1664       │
+│   full CT is referenced from     │                               │
+│   that commitment.               │  (LIONESS REPLACED the old    │
+│                                  │   XOR / per-hop-AEAD branch;  │
+│                                  │   see §4.5, defeats tagging.) │
 └──────────────────────────────────┴───────────────────────────────┘
 ```
 
@@ -106,7 +122,7 @@ A Gotham packet is **exactly 2048 bytes** after construction.
 
 ```
 struct Header {
-    version: u8,                  // 0x01 for this spec
+    version: u8,                  // 0x02 for this spec (Sphinx v0.2)
     mode: u8,                     // 0=low-latency, 1=balanced, 2=paranoid
     reserved: u16,                // must be zero
     alpha: [u8; 32],              // X25519 ephemeral public key
@@ -144,10 +160,15 @@ Total per-record: 64 B. With MAX_HOPS = 5 and per-hop key wraps included,
 For each hop *i*, the relay decapsulates both:
 
 ```
-ss_x  = X25519_DH(relay_x25519_sk, alpha_i)
+ss_x  = X25519_DH(relay_x25519_sk, alpha_i)   // low-order α_i rejected — see below
 ss_pq = ML-KEM-768.Decapsulate(relay_mlkem_sk, alpha_prime_i)
 ss_i  = HKDF-SHA256(ss_x || ss_pq, info = "gotham-hop-secret-v1")
 ```
+
+**Low-order-point rejection.** `α_i` is validated before the DH: low-order
+X25519 points are rejected (the DH is no longer treated as merely
+non-contributory — it is refused outright). This fixes the earlier **M-1**
+Sphinx low-order-points finding.
 
 The HKDF then expands `ss_i` into four 32-byte sub-keys:
 
@@ -155,7 +176,7 @@ The HKDF then expands `ss_i` into four 32-byte sub-keys:
 |---------------|------------------------------------------------------|
 | `k_mac`       | Verify γ and produce next γ                          |
 | `k_header`    | Decrypt β to extract this hop's routing record      |
-| `k_payload`   | Strip the outermost AEAD layer of the payload       |
+| `k_payload`   | Unwrap one LIONESS wide-block PRP layer (§4.5)       |
 | `k_blind`     | Re-randomize (α, α*) for the next hop               |
 
 ### 4.2 Folded KEM construction
@@ -196,6 +217,18 @@ After unwrap, the relay produces the next-hop header by:
 The peeled β becomes β_{i+1}, padded with random bytes at the tail to
 maintain fixed length.
 
+### 4.5 Payload onion — LIONESS wide-block PRP
+
+The per-hop payload is protected by a **LIONESS wide-block, non-malleable
+pseudo-random permutation** (Anderson–Biham, 4 rounds) keyed from `k_payload`.
+Each hop applies one LIONESS layer; the recipient peels them in reverse.
+
+This **replaced the earlier XOR / per-hop-AEAD branch payload**. Because
+LIONESS is a wide-block PRP over the entire payload, any single-bit change to
+the ciphertext scrambles the whole block on decryption — so an active
+adversary cannot tag a payload and recognize it downstream. Combined with the
+header γ-MAC chain (§4.3), this closes both header- and payload-tagging paths.
+
 ---
 
 ## §5 · Routing & path selection
@@ -210,16 +243,25 @@ maintain fixed length.
 
 ### 5.2 Selection constraints
 
-When choosing a path:
+When choosing a path, diversity is enforced **globally across the whole
+path**, not merely between consecutive hops:
 
 1. **Tier discipline.** First hop = `entry`, last hop = `exit`, intermediate
    hops = `mix`. Mismatch is a path-selection error.
-2. **Operator diversity.** No two consecutive hops from the same operator
-   (when operator metadata is published in the directory).
-3. **AS diversity.** No two consecutive hops in the same /16 IPv4 or /48
-   IPv6 prefix.
-4. **Country diversity (best effort).** Prefer paths spanning at least 2
+2. **Global operator diversity.** Every hop in the path must belong to a
+   **distinct operator** — no operator appears twice anywhere in the route.
+3. **Global network diversity.** Every hop must sit in a **distinct network
+   prefix** — /16 for IPv4, /48 for IPv6 — across the entire path.
+4. **Entry ≠ exit.** The entry relay and the exit relay must not be the same
+   node.
+5. **Country diversity (best effort).** Prefer paths spanning at least 2
    distinct countries.
+
+> **Live-network caveat.** This guard is why network anonymity is not yet
+> real-world proven: the 3 online relays all share one /16, so no route can
+> currently be built. The guard is working as intended — it refuses to
+> degrade anonymity — but a live network across multiple /16s is required
+> before any message transits Gotham.
 
 ### 5.3 Per-packet randomization
 
@@ -296,9 +338,11 @@ Every Gotham client maintains a Poisson process with rate `λ`:
 λ_paranoid    = 1/5   // every 5 s
 ```
 
-At each tick:
+Real user sends are now routed **through the cover-traffic queue** rather than
+bypassing it, so a real message and a cover packet are indistinguishable to an
+on-path observer at the emission timing level. At each tick:
 
-- If the client has a real message to send → send it.
+- If a real message is queued → it is dispatched in the slot.
 - Otherwise, send a **drop packet** (destination = special sink relay; the
   sink silently discards) **or** a **loop packet** (destination = self; the
   packet traverses the mixnet and arrives back as a "you sent yourself a
@@ -307,12 +351,15 @@ At each tick:
 The two cover-traffic types are equiprobable to defeat statistical
 discrimination.
 
-Battery-aware degradation (mobile):
+Battery-aware degradation (future mobile clients — desktop-only today):
 
 - If battery < 30% **and** charger disconnected → `λ` divided by 4 (less
   cover, more anonymity exposure, but device survives).
 - If app is backgrounded for > 10 min → cover paused; resumed on app
   return.
+
+> Mobile clients are not shipped (desktop only: Linux/macOS/Windows); the
+> battery rules above are a forward-looking design note, not current behavior.
 
 ---
 
@@ -350,11 +397,48 @@ from a designated `directory_responder` relay. Cached locally for 24 h.
 On expiry, refresh; on fetch failure, fall back to last-known-good for up
 to 7 days before refusing to operate.
 
-### 8.3 Multi-sig (v2)
+### 8.3 Self-forming directory & authority attestation
 
-Initially the authority is a single Ed25519 keypair held by the project
-maintainer. v2 introduces N-of-M multi-sig (default 3-of-5) with rotating
-quorum members, mirroring Tor's directory consensus model but simplified.
+The directory is **self-forming and signed**. Relays **enroll** with the
+directory authority, then keep their entry live via periodic **heartbeats**;
+the authority runs a **proof-of-possession liveness probe** to confirm a
+relay actually holds the private key for its advertised identity before (and
+while) it is listed. Enrollment uses a bearer enroll token (`<token>`
+placeholder — never commit a real token) against the public authority URL.
+
+Directory content is anchored by **k-of-n authority attestation**: a quorum
+of k out of n authority signers must attest a directory document before
+clients accept it, mirroring Tor's directory-consensus model but simplified.
+(A single-key bootstrap remains possible for local testing; production uses
+the k-of-n quorum.)
+
+### 8.4 Gotham mailbox — offline store-and-forward
+
+A **Gotham mailbox** provides store-and-forward delivery for offline
+recipients. Deposit is performed **over the mixnet** (the sender's packet
+transits Gotham and terminates at a mailbox host, not a plaintext upload).
+Recipients are spread across mailbox hosts via **HRW (rendezvous) hashing**,
+so no single host holds all traffic and host membership can change without
+rehoming every user. Message content remains E2E-encrypted; the mailbox holds
+only sealed ciphertext.
+
+### 8.5 SURB — single-use reply blocks
+
+**SURBs (single-use reply blocks)** let a party receive a reply without
+revealing its own address: the requester ships a pre-built, single-use return
+header that the responder attaches to its packet. Gotham uses SURBs to enable
+**anonymous mailbox fetch** — a client can pull queued messages from a mailbox
+host without disclosing which client it is. Each SURB is enforced single-use
+(tracked in a single-use registry) to prevent replay-based deanonymization.
+
+### 8.6 Decentralized peer-to-peer gossip transport
+
+Relays discover one another through a **decentralized P2P gossip transport**
+rather than relying solely on a central push of the directory. The gossip
+layer is **anchored by k-of-n authority attestation** (§8.3): peers accept
+gossiped directory deltas only when they carry a valid quorum attestation, so
+gossip speeds propagation without letting an unauthenticated peer inject
+relays.
 
 ---
 
@@ -367,14 +451,21 @@ Detailed analysis below.
 
 | Adversary                                | Mechanism                                                                |
 |------------------------------------------|--------------------------------------------------------------------------|
-| Passive ISP / café WiFi                  | Link encryption (Noise XK over QUIC/TLS); pluggable transports for DPI   |
-| Single compromised relay                 | Sealed-sender + sphinx-onion: relay sees neither src nor dst nor content |
-| Replay attempts                          | 5-min γ cache (§6.2)                                                     |
-| Tagging attacks                          | MAC chain in header (§4.3)                                               |
-| Timing correlation (small N)             | Poisson delays + cover traffic                                           |
-| Packet-size analysis                     | Fixed 2 KB packets                                                       |
+| Passive ISP / café WiFi                  | Link encryption (Noise XK over QUIC, TLS 1.3 fallback). DPI-evasion pluggable transports are planned, not shipped |
+| Single compromised relay                 | Sealed-sender + Sphinx v0.2 onion: relay sees neither src nor dst nor content |
+| Replay attempts                          | 5-min gamma-MAC cache (§6.2)                                             |
+| Header tagging                           | γ-MAC chain in header (§4.3)                                             |
+| Payload tagging                          | LIONESS wide-block non-malleable PRP (§4.5)                              |
+| Timing correlation (small N)*            | Loopix-style Poisson delays + continuous cover traffic                   |
+| Packet-size analysis                     | Fixed 2 KB packets (Sphinx v0.2)                                         |
 | Future quantum adversary                 | X25519 + ML-KEM-768 hybrid; an attacker must break both                  |
-| Forced key disclosure (subpoena)         | Forward secrecy + ephemeral per-hop keys; nothing persistent to disclose |
+| Forced key disclosure (subpoena)         | Forward secrecy + ephemeral per-hop keys; no persistent per-hop state    |
+
+> *The mixnet mechanisms marked above defend network anonymity **only once a
+> live network spanning multiple /16s is operational and independently
+> audited**. Today no message has transited the live network (§5.2), so these
+> defenses are designed and unit-tested but not yet real-world proven.
+> Message-content protection (E2E), by contrast, is solid and testable now.
 
 ### 9.2 Adversaries Gotham does NOT resist
 
@@ -407,7 +498,10 @@ CSPN-target implementations must reach Gotham-SHOULDS minimum.
 - **OQ1.** Should we ship traffic shaping (constant-rate, like Vuvuzela)
   rather than Poisson? Trade-off: better anonymity vs higher bandwidth cost.
 - **OQ2.** Multi-device support: same identity, multiple Gotham instances.
-  Need protocol for state sync without leaking metadata.
+  A primitive has **landed** (SAS-verified device link + encrypted
+  account-bundle transfer) but activation is **deliberately gated / not
+  shipped**, so it is one device per identity for end users today. Open
+  question is the metadata-safe state-sync protocol before ungating.
 - **OQ3.** Group messaging routing — naive fan-out blows up cover budget.
   Likely needs separate spec.
 - **OQ4.** Push notifications: the push-relai needs minimal metadata about
@@ -418,4 +512,4 @@ CSPN-target implementations must reach Gotham-SHOULDS minimum.
 
 ---
 
-*End of v0.1. Track changes in `CHANGELOG.md`.*
+*End of v0.2 (2026-07-03). Track changes in `CHANGELOG.md`.*

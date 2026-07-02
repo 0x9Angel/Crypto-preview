@@ -17,7 +17,7 @@ first public release. Until that file lands, the canonical text at the
 GNU URL above governs.
 
 **Key consequence of AGPLv3** : any **network use** of a modified version
-of this software (e.g. running a fork as a hosted SMP / Gotham relay
+of this software (e.g. running a fork as a hosted Gotham relay
 service) requires you to publish the corresponding source code under the
 same license. This is the trigger that distinguishes AGPL from GPL —
 "running it" counts as "distributing it" for hosted deployments.

@@ -26,14 +26,22 @@ The repository **will be opened to the community** when **all** of the
 following are true:
 
 1. The four work tracks documented in [`CHECKLIST.md`](CHECKLIST.md)
-   are at 100%. As of 2026-05-25: A · 100%, B · 83%, C · 62%, D · 0%.
-2. An independent third-party security audit (Trail of Bits / NCC /
+   are at 100%. As of 2026-07-03: A · 100%, B · 100%, C · 100%, D ·
+   started but blocked. Deployment (track D) has begun — a directory
+   authority plus 3 relays are online — but all 3 relays currently sit
+   on a single /16, so the (correct) global path-diversity guard
+   refuses to build a route and **no real message has yet transited the
+   live network**. Track D closes once relays span multiple /16s.
+2. An **independent third-party** security audit (Trail of Bits / NCC /
    Quarkslab / Synacktiv-class) has been completed and the report is
-   public.
+   public. To date there has been **no external audit** — only an
+   internal audit (2026-05-25) plus several multi-agent adversarial
+   reviews whose confirmed findings were all fixed.
 3. At least one production relay has been deployed and observed for
    ≥ 90 days without security incident.
-4. Test coverage clears 80% across the workspace (currently 63.56% —
-   see [`docs/COVERAGE.md`](docs/COVERAGE.md) once the repo is open).
+4. Test coverage clears the 80% pre-GA target across the workspace.
+   (The last measured figure — 63.56% — is a stale 2026-05-25 snapshot;
+   refresh it from the coverage tracker before relying on it.)
 
 These are the same conditions described in
 [`THREAT-MODEL.md`](THREAT-MODEL.md) § 10. None of them are met today.
@@ -57,27 +65,43 @@ needed to take them seriously.
 
 ### Crypto — the messenger
 
-A desktop end-to-end encrypted chat application built on Tauri 2 +
-React 19 + a Rust backend. Uses the Signal protocol (X3DH + Double
-Ratchet) for E2E. SQLCipher AES-256 + Argon2id KDF for local storage.
-Ed25519-signed audit log exports for compliance use. SSO (OIDC) and
-SCIM 2.0 provisioning at the Enterprise tier.
+A desktop (Linux / macOS / Windows) end-to-end encrypted chat
+application built on Tauri 2 + React 19 + a Rust backend. Uses the
+Signal protocol (X3DH + Double Ratchet) for E2E, with sealed-sender,
+forward secrecy, and post-compromise security. Identity verification is
+a Signal-style 60-digit safety number (forced + persisted, with a
+verified flag and an alert on pinned-key change for MITM detection);
+identity-key rotation and revocation are implemented end-to-end.
+SQLCipher AES-256 + Argon2id KDF for local storage, FTS5 encrypted
+search, and encrypted DB backup/restore. Voice messages (Opus sealed
+under the ratchet). Ed25519-signed audit-log exports (JSONL for SIEM)
+for compliance use. SSO (OIDC, 5 IdPs). SCIM 2.0 provisioning is on the
+Enterprise-tier roadmap, not yet delivered. No mobile clients and no
+audio/video calls yet. Multi-device: the primitive (SAS-verified device
+link + encrypted account-bundle transfer) has landed, but activation is
+deliberately gated — so it remains one device per identity for end
+users today.
 
 ### Gotham — the mixnet
 
-A post-quantum-hybrid mixnet (X25519 + ML-KEM-768 per hop) with
-Sphinx-style fixed-size packets, Loopix-style Poisson mixing, and a
-pluggable-transport layer for hostile-network deployment (obfs4-like
-+ meek-CDN HTTPS fronting). Designed for 100–300 ms median latency,
-not for bulk file transfer. The Gotham specification is documented in
-[`GOTHAM.md`](GOTHAM.md).
-
-### Federation server
-
-An optional `crypto-server` binary an organisation can deploy as a
-relay point on dedicated infrastructure. **Has never been deployed
-in production.** First production deployment is gated on the
-third-party audit.
+A post-quantum-hybrid mixnet (X25519 + ML-KEM-768 hybrid KEM per hop)
+with Sphinx v0.2 fixed-size 2048-byte packets and Loopix-style Poisson
+mixing plus continuous cover traffic (real user sends are routed through
+the cover-traffic queue). The link layer is Noise XK over QUIC. Per-hop
+payload is protected by a LIONESS wide-block non-malleable PRP
+(Anderson-Biham, 4-round) that defeats tagging. Path selection enforces
+global diversity — distinct operator and distinct network (/16 for
+IPv4, /48 for IPv6) across the whole path, entry ≠ exit — and low-order
+X25519 points are rejected. Recent additions: SURB single-use reply
+blocks for anonymous mailbox fetch, a Gotham mailbox for store-and-
+forward offline delivery (deposit done over the mixnet, recipients
+spread across mailbox hosts via HRW hashing), a decentralized
+peer-to-peer gossip transport for relay discovery anchored by k-of-n
+authority attestation, and a self-forming signed directory + directory
+authority. A meek-CDN / obfs4-style pluggable-transport layer for
+hostile-network deployment is planned but **not shipped**. Designed for
+100–300 ms median latency, not for bulk file transfer. The Gotham
+specification is documented in [`GOTHAM.md`](GOTHAM.md).
 
 ---
 
@@ -109,7 +133,7 @@ was just added — please open an issue and we will index it.
 | File | What it is for |
 |---|---|
 | [`SECURITY.md`](SECURITY.md) | Vulnerability-disclosure policy. Where to report, what to include, what to expect in response. Also lists active and closed advisories from `cargo audit`. |
-| [`SECURITY-AUDIT.md`](SECURITY-AUDIT.md) | Full report of the 2026-05-25 internal security audit. 4 CVEs detected → 3 closed → 1 accepted-risk documented. 10 patches landed. |
+| [`SECURITY-AUDIT.md`](SECURITY-AUDIT.md) | Full report of the 2026-05-25 **internal** security audit (no external audit has happened yet). 1 accepted risk documented: RSA-Marvin (RUSTSEC-2023-0071) via `openidconnect` — unreachable path. |
 | [`THREAT-MODEL.md`](THREAT-MODEL.md) | Project-wide threat model. Threat actors (T1–T4), assets, what we resist, **what we do NOT resist**, operational assumptions, known gaps, comparison with Signal and Tor. The honest one. |
 
 ### Roadmap / status
@@ -117,7 +141,7 @@ was just added — please open an issue and we will index it.
 | File | What it is for |
 |---|---|
 | [`CHECKLIST.md`](CHECKLIST.md) | The master roadmap. Four tracks (A · Gotham protocol, B · Crypto app, C · Tests & audit, D · Deployment). Each item with its real status. The source of the percentages on the public site. |
-| [`B10-MULTI-DEVICE-SPRINT.md`](B10-MULTI-DEVICE-SPRINT.md) | Detailed sprint plan for the B10 work item (multi-device sync). Five phases: design (1w) → implementation (2w) → testing (1w) → audit (3-4w) → merge (1w). |
+| [`B10-MULTI-DEVICE-SPRINT.md`](B10-MULTI-DEVICE-SPRINT.md) | Design and status for the B10 work item (multi-device). The primitive — SAS-verified device link + encrypted account-bundle transfer — has landed; activation is deliberately gated, so it is still one device per identity for end users today. |
 
 ### Gotham-specific documentation
 
@@ -129,7 +153,7 @@ independently usable by any other application — not only by Crypto.
 | [`GOTHAM.md`](GOTHAM.md) | The Gotham protocol specification (v0.1 draft). Wire format, cryptographic operations, routing rules, relay protocol, cover-traffic policy, directory authority. The reference document a second implementation team would work from. |
 | [`GOTHAM-CHECKLIST.md`](GOTHAM-CHECKLIST.md) | Gotham-specific roadmap. A1–A8 items for the protocol itself, plus hardening tracks (formal verification, fuzzing, side-channel resistance). |
 | [`GOTHAM-THREAT-MODEL.md`](GOTHAM-THREAT-MODEL.md) | Mixnet-specific threat model. Complementary to the project-wide `THREAT-MODEL.md` — narrower and more technical. |
-| [`GOTHAM-DEPLOYMENT.md`](GOTHAM-DEPLOYMENT.md) | How to deploy a Gotham relay in practice. Systemd unit files, firewall rules, key-rotation procedures, pluggable-transport configuration. Currently theoretical — no production deployment yet. |
+| [`GOTHAM-DEPLOYMENT.md`](GOTHAM-DEPLOYMENT.md) | How to deploy a Gotham relay in practice. Systemd unit files, firewall rules, key-rotation procedures, directory enrollment / heartbeat. Deployment has started — a directory authority plus 3 relays are online — but all sit on one /16, so the path-diversity guard has not yet let any message transit the live network. |
 | [`GOTHAM-OPSEC.md`](GOTHAM-OPSEC.md) | Operational security guidance for relay operators. What logs to keep, what logs not to keep, how to respond to subpoenas, how to detect a compromised neighbour. |
 | [`GOTHAM-USERGUIDE.md`](GOTHAM-USERGUIDE.md) | End-user-facing documentation of what Gotham does and does not do, written without protocol jargon. For Crypto users curious about what the mixnet actually buys them. |
 | [`GOTHAM-DOSSIER.md`](GOTHAM-DOSSIER.md) | Long-form technical dossier (~60 KB) covering the protocol design rationale, cryptographic choices, and comparison with prior mixnet research (Loopix, Mixminion, Sphinx, Katzenpost). For research-audience readers. |
@@ -150,14 +174,12 @@ Workspace structure (high-level):
 crypto-proto/         Wire-format types shared across the project
 crypto-store/         SQLCipher-backed storage layer + KDF + recovery
 crypto-agent/         X3DH + Double Ratchet + session manager
-crypto-server/        Optional federation server (never deployed)
 crypto-gotham/        Gotham mixnet protocol library
 crypto-gotham-relay/  Gotham relay binary
 crypto-tauri/         Desktop application (Tauri 2 + React 19)
 crypto-enterprise/    SSO / SCIM / audit-log / clustering
 crypto-licensor/      Offline license-signing operator tool
 crypto-admin/         Admin dashboard
-crypto-cli/           CLI tool for local operations
 crypto-tests/         Cross-crate integration tests
 ```
 
@@ -188,8 +210,8 @@ documented in [`CONTRIBUTING.md`](CONTRIBUTING.md). The short version:
 - **Commercial licensing inquiry**: same address, subject `Commercial licence` (see [`LICENSE-COMMERCIAL.md`](LICENSE-COMMERCIAL.md))
 - **Early-access list (notified when the repository opens)**: same address, subject `Early-access list`
 
-PGP key and `.onion` v3 mirror are pending — see `SECURITY.md` for the
-current status of those channels.
+PGP key setup is pending — see `SECURITY.md` for the current status of
+that channel.
 
 ---
 

@@ -10,7 +10,17 @@ relay pool is diverse, the relays are honest, and the relays are
 not silently compromised. This document is the operator's
 contribution to that guarantee.
 
-**Last reviewed:** 2026-05-25
+Network-level anonymity is currently theoretical. A directory
+authority plus three relays are online today, but all three sit on a
+single /16, so the (correct) path-diversity guard refuses to build a
+route — no real message has yet transited the live network. Message
+content protection (E2E) is solid and independently testable; network
+anonymity becomes real-world proven only once relays span multiple
+/16s and an external audit is complete. The single most valuable
+thing an operator can do right now is bring up a relay on a distinct
+/16 (and distinct operator) from the existing three.
+
+**Last reviewed:** 2026-07-03
 
 ---
 
@@ -96,8 +106,12 @@ Recommended inbound rules on the host firewall:
 | Port | Protocol | Source | Purpose |
 |------|----------|--------|---------|
 | 22 | TCP | Admin IPs only (or VPN) | SSH |
-| 443 | UDP | Anywhere | Gotham QUIC |
-| 443 | TCP | Anywhere | Gotham TLS fallback (when A6.2 ships) |
+| 443 | UDP | Anywhere | Gotham link (Noise XK over QUIC) |
+
+The Gotham link layer is Noise XK over QUIC on UDP/443. Obfuscated
+or CDN-fronted transports (obfs4-style, meek-style TLS fronting) are
+NOT shipped; they are at most future/planned. Do not open a TCP/443
+fallback for them today.
 
 Everything else: drop, no ICMP reply (so you don't trivially
 fingerprint as a Gotham relay vs a generic HTTPS service).
@@ -109,8 +123,9 @@ Recommended outbound rules:
 | Public DNS or your own resolver | UDP/53, TCP/53 | Name resolution |
 | Public NTP servers | UDP/123 | Time sync |
 | Distribution mirrors | TCP/443 | Package updates |
-| Other Gotham relays | UDP/443, TCP/443 | Forwarding |
-| Directory authority | TCP/443 | Directory refresh |
+| Other Gotham relays | UDP/443 | Forwarding (QUIC) |
+| Directory authority | TCP | Directory refresh (HTTPS) |
+| Peer relays (gossip) | UDP/443 | Peer discovery / attestation gossip |
 
 Block outbound to internal RFC1918 ranges except for your own
 management VPN, if any.
@@ -147,8 +162,9 @@ account for it.
 
 ### Operational keys
 
-Two keys live on the relay host (X25519 KEM + Ed25519 identity).
-Both are required for the relay to function.
+Two keys live on the relay host: the per-hop KEM key (X25519 +
+ML-KEM-768 hybrid, post-quantum) and the Ed25519 identity key. Both
+are required for the relay to function.
 
 - **Never copy these keys off the host casually.** They are not
   intended to be portable.
@@ -160,7 +176,8 @@ Both are required for the relay to function.
 
 ### Key rotation
 
-- Routine rotation: annually for the X25519 KEM key.
+- Routine rotation: annually for the hybrid (X25519 + ML-KEM-768)
+  KEM key.
 - Triggered rotation: any of the following triggers an immediate
   rotation:
   - You suspect host compromise.
@@ -215,7 +232,10 @@ If you suspect compromise:
 In most jurisdictions a Gotham relay operator has limited useful
 information to disclose:
 
-- No mapping of source to destination.
+- No mapping of source to destination. (A single honest relay never
+  sees both ends of a path. The network-wide unlinkability this is
+  meant to provide holds once a live network spanning multiple /16s
+  exists; today the live network is not yet real-world proven.)
 - No content (packets are encrypted end-to-end at multiple layers).
 - No per-packet timestamps.
 - Identities of peer relays, taken from the public directory.
@@ -274,8 +294,9 @@ Running a relay is a public service. Some ethical guidelines:
   have no ability to censor by content. If you find yourself wanting
   to block certain destinations or peers, you should not be running
   a relay.
-- **Do not use the relay for commercial purposes.** v1 has no
-  payment model. Do not collect tips per relay, do not link the
+- **Do not use the relay for commercial purposes.** The current
+  release (v0.7) has no payment model. Do not collect tips per relay,
+  do not link the
   relay to a paid service. Mixing financial incentives with relay
   operation creates conflicts of interest.
 - **Coordinate.** Join the operators' mailing list (when it exists)

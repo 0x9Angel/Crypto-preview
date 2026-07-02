@@ -13,7 +13,7 @@ is built to withstand and what is out of scope.
 **Audience:** auditors, integrators, researchers, RSSI / CISO,
 sceptical end users.
 
-**Last reviewed:** 2026-05-25
+**Last reviewed:** 2026-07-03
 
 ---
 
@@ -28,13 +28,19 @@ This threat model covers:
   (QUIC over UDP/443, Noise XK at the link layer).
 - The client integration in Crypto (`crypto-tauri`'s `gotham_*`
   commands, the inbox drainer, the directory cache).
-- The directory authority (signed JSON document, Ed25519 signature).
+- The self-forming signed directory and directory authority (signed
+  JSON document, Ed25519 signature; enroll / heartbeat /
+  proof-of-possession liveness probe), the peer-to-peer gossip
+  transport by which relays discover each other (anchored by k-of-n
+  authority attestation), the SURB single-use reply blocks, and the
+  Gotham mailbox for store-and-forward offline delivery.
 
 It does not cover:
 
 - The end-to-end encryption layer (Signal protocol — X3DH + Double
-  Ratchet). That layer is independently audited; this document
-  assumes it is intact.
+  Ratchet). That layer uses Signal-class primitives; this document
+  assumes it is intact. It has not yet had an independent external
+  audit.
 - The application's local storage (SQLCipher + Argon2id). See the
   Crypto general threat model for that.
 - The endpoint operating system or hardware. Endpoint compromise
@@ -53,10 +59,20 @@ In priority order:
 | **G3** | A single compromised relay learns nothing about the end-to-end relationship. | Sphinx layered encryption, MAC chain, re-blinding per hop. |
 | **G4** | Replay of an old packet cannot be used to extract information. | 5-minute MAC cache per relay, packet-level uniqueness. |
 | **G5** | A future quantum adversary cannot retroactively decrypt today's traffic. | Hybrid X25519 + ML-KEM-768 KEM. |
-| **G6** | Tampering with a packet in flight is detected and the packet dropped. | Sphinx MAC chain, AEAD on each per-hop record. |
+| **G6** | Tampering with a packet in flight is detected and the packet dropped. | Sphinx MAC chain on the header, LIONESS wide-block non-malleable PRP on the payload. |
 | **G7** | The wire is indistinguishable from generic encrypted traffic at the IP layer. | Fixed-size 2048-byte packets, QUIC on UDP/443. |
 
-Goals G1-G7 are met against the threat classes enumerated in §3.
+Goals G1-G7 are met *by design* against the threat classes
+enumerated in §3.
+
+**Honest status (2026-07-03):** the message-*content* goals (G3-G7)
+are testable and hold today. The network-level anonymity goals
+(G1, G2) are currently **theoretical**: a directory authority plus
+3 relays are online, but all 3 sit inside a single /16, so the
+(correct) global path-diversity guard refuses to build a route and
+**no real message has yet transited the live network**. G1/G2 hold
+*once* a live network spanning multiple /16s exists and has been
+externally audited; today they are not yet real-world proven.
 
 ---
 
@@ -167,6 +183,13 @@ the exit can recognise it later.
 - The MAC chain binds every byte of the header. Any modification at
   the entry invalidates the MAC at the second hop and the packet is
   dropped before it ever reaches the exit.
+- The per-hop payload is protected by a LIONESS wide-block
+  non-malleable PRP (Anderson–Biham, 4 rounds), which replaced the
+  earlier XOR / per-hop-AEAD branch payload. Because LIONESS is a
+  wide-block cipher, flipping any bit of the payload at the entry
+  scrambles the entire block at the exit, so a mark applied at the
+  entry cannot be recognised downstream — this defeats payload
+  tagging.
 - Per-hop re-blinding of `α` means the on-wire representation of
   the packet between hops is mathematically distinct.
 
@@ -206,19 +229,21 @@ identify Gotham traffic and either log or block it.
 
 **Defence:**
 
-- All Gotham packets are 2048 bytes and travel over QUIC/UDP/443
-  with realistic TLS-like flow patterns. Cover traffic ensures the
-  flow continues even when the user is idle.
-- The pluggable-transports framework (v0.2 feature branch) adds
-  obfs4-like obfuscation and meek-CDN domain-fronting variants for
-  hostile network environments.
+- All Gotham packets are 2048 bytes and travel over Noise XK over
+  QUIC on UDP/443 with realistic TLS-like flow patterns. Cover
+  traffic ensures the flow continues even when the user is idle.
+- A pluggable-transports framework (obfs4-like obfuscation and
+  meek-CDN domain-fronting variants for hostile network
+  environments) is **planned, not shipped**. The link layer today
+  is Noise XK over QUIC only.
 
 **Residual surface:**
 
 - A sufficiently determined classifier with a Gotham-specific
-  signature can probabilistically identify the protocol. Pluggable
-  transports raise the cost of this classification but do not
-  eliminate it.
+  signature can probabilistically identify the protocol. The
+  planned pluggable transports would raise the cost of this
+  classification but do not eliminate it, and are not yet
+  available.
 
 ### 3.8 Sybil attacks on the relay pool
 
@@ -231,10 +256,12 @@ adversarial.
 - Directory authority vetting: relay submissions are reviewed
   before being added to the signed directory. This is a manual
   process today and is the rate limit on Sybil growth.
-- Operator diversity in path selection: the path selector refuses
-  two hops on the same path from the same declared operator.
-- IP /16 diversity: the path selector refuses two consecutive hops
-  in the same /16 IPv4 block.
+- Operator diversity in path selection: the path selector enforces
+  a distinct declared operator for every hop across the whole path,
+  and requires that entry and exit are not the same relay.
+- Network diversity: the path selector enforces distinct networks
+  across the *whole* path — /16 for IPv4 and /48 for IPv6 — not
+  merely between consecutive hops.
 - AS diversity: planned (B18 in CHECKLIST.md) — the selector will
   prefer paths spanning multiple autonomous systems.
 
@@ -324,11 +351,12 @@ their published security parameters:
 
 | Primitive | Use | Status |
 |-----------|-----|--------|
-| X25519 | KEM half (classical) | Standard, well-studied |
+| X25519 | KEM half (classical) | Standard, well-studied; low-order input points are rejected (see M-1 note in §6) |
 | ML-KEM-768 | KEM half (post-quantum) | NIST FIPS 203 |
 | HKDF-SHA256 | Key derivation | Standard |
-| ChaCha20-Poly1305 | AEAD on payload + envelope | Standard, audited |
+| ChaCha20-Poly1305 | AEAD on the sealed-sender envelope (per-hop payload uses the LIONESS wide-block PRP) | Standard |
 | Poly1305 | MAC chain on Sphinx header | Standard |
+| LIONESS (Anderson–Biham, 4-round) | Wide-block non-malleable PRP on the per-hop payload | Standard construction over a stream cipher + hash |
 | Ed25519 | Directory signatures, audit log signatures | Standard |
 | Noise XK | Link-layer mutual auth (relay-to-relay) | Standard (Noise framework) |
 
@@ -362,11 +390,23 @@ must be re-evaluated.
   [CHECKLIST.md](CHECKLIST.md) describe battery-aware degradation
   and backgrounded-app handling. These are required to extend the
   metadata-hygiene guarantees to mobile.
+- **Live anonymity set:** the network-level goals G1/G2 are not yet
+  real-world proven. Today only a directory authority and 3 relays
+  are online, all in a single /16, so the path-diversity guard
+  refuses to build any route and no message has transited the live
+  network. This requires (a) relays spread across multiple /16s and
+  (b) an external audit before G1/G2 can be claimed operationally.
+- **M-1 low-order X25519 points (fixed):** an earlier internal
+  finding (M-1) noted that the Sphinx KEM accepted low-order X25519
+  input points. This is now fixed — low-order points are rejected
+  (the former `was_contributory` check), closing the finding.
 - **External audit:** the model in this document has been reviewed
-  internally. Independent cryptographic audit (Trail of Bits /
-  Quarkslab / Synacktiv / NCC Group) is the gate before the v0.2
-  feature branch merges to `main`. Production deployment is
-  contingent on completion of that audit.
+  internally (2026-05-25) and stress-tested by several multi-agent
+  adversarial reviews whose confirmed findings were all fixed. No
+  independent external/third-party audit has taken place yet.
+  Independent cryptographic audit (e.g. Trail of Bits / Quarkslab /
+  Synacktiv / NCC Group) remains a gate before production
+  deployment and before G1/G2 are claimed operationally.
 
 ---
 
@@ -375,7 +415,8 @@ must be re-evaluated.
 | Date | Reviewer | Scope | Outcome |
 |------|----------|-------|---------|
 | 2026-05-25 | Angel | Internal review against this document | — |
-| TBD | External audit firm (TBD) | Cryptographic review of Gotham implementation | Pending |
+| 2026-05–07 | Multi-agent adversarial reviews (internal) | Sphinx wrap/unwrap, path selection, cover traffic, SURB/mailbox | Confirmed findings all fixed (incl. M-1 low-order points, payload tagging via LIONESS, global path diversity) |
+| TBD | External audit firm (TBD) | Independent cryptographic review of the Gotham implementation | Pending — not yet started |
 
 This table will be appended on each subsequent review.
 

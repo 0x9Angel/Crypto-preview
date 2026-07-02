@@ -3,7 +3,7 @@
 **SPDX-License-Identifier:** `LicenseRef-Crypto-Commercial` (messenger)
 **SPDX-License-Identifier:** `LicenseRef-Gotham-Commercial` (mixnet)
 
-Last reviewed: 2026-05-25. 
+Last reviewed: 2026-07-03. 
 
 > **Honest status, read first.**
 >
@@ -186,7 +186,6 @@ honestly to the table.
 
 Email: `Crypto.app.organisation@protonmail.com`
 PGP fingerprint: *(not yet published — a production PGP key is pending)*
-Onion mirror: *(not yet published — a production .onion v3 is pending)*
 
 These contact channels are real but rate-limited and may take several
 days to respond. The project is run by a small team and answers are

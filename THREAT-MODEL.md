@@ -1,9 +1,9 @@
 # Threat model — Crypto & Gotham
 
-Last reviewed: 2026-05-25.
-Version: 0.7 (pre-production).
-Scope: the full project — desktop app, embedded relay, federation server,
-Gotham mixnet, and the operational boundary between them. 
+Last reviewed: 2026-07-03.
+Version: 0.7 (pre-production, Gotham-only transport). App builds tagged v2.1.x.
+Scope: the full project — desktop app, the Gotham mixnet (sole transport),
+and the operational boundary between them. 
 
 > **Honest preamble.** This is the threat model of a project that has
 > **not yet been deployed in production**, **not yet been audited by an
@@ -14,11 +14,19 @@ Gotham mixnet, and the operational boundary between them.
 > further. Do not use it to decide whether to bet a life on the project
 > today.
 >
+> Message **content** protection (the E2E layer) is solid and testable
+> today. Network-level **anonymity** is currently **theoretical**: a
+> directory authority plus 3 relays are online, but all 3 sit on a single
+> /16, so the path-diversity guard correctly refuses to build a route and
+> **no real message has yet transited the live network** (see §8.2). It
+> becomes real-world once a live network spanning multiple /16s exists and
+> an external audit has run.
+>
 > The current honest answer to "is this safe enough for source
 > protection / attorney-client privilege / dissident communication?" is:
 > **not yet, because no audit has confirmed the implementation matches
-> the design**. We will say otherwise the day an independent auditor's
-> report says otherwise.
+> the design, and the mixnet has not yet carried live traffic**. We will
+> say otherwise the day an independent auditor's report says otherwise.
 
 ---
 
@@ -43,12 +51,13 @@ Gotham mixnet, and the operational boundary between them.
 
 - **Crypto** — the end-to-end encrypted desktop messenger (Tauri 2 +
   React 19 + Rust backend).
-- **Embedded relay** — the per-user SMP server that ships inside the
-  desktop binary and exposes a Tor Hidden Service.
-- **crypto-server** — the optional federation server an organisation
-  can deploy as a relay point on dedicated infrastructure.
-- **Gotham** — the post-quantum-hybrid mixnet protocol (Sphinx-style
-  packet format, X25519 + ML-KEM-768, Loopix-style Poisson mixing).
+- **Gotham** — the post-quantum-hybrid mixnet protocol, and the sole
+  transport (Sphinx v0.2 fixed-size 2048-byte packets, X25519 + ML-KEM-768
+  hybrid KEM per hop, Noise XK over QUIC link layer, Loopix-style Poisson
+  mixing + continuous cover traffic). Includes the Gotham mailbox for
+  store-and-forward offline delivery, SURB anonymous mailbox fetch, the
+  peer-to-peer gossip transport, and the self-forming signed directory +
+  directory authority.
 - **Local storage** — SQLCipher-backed SQLite database holding identity
   keys, ratchet state, message history, contact list.
 - **Backup / recovery** — the master-password recovery code flow and
@@ -177,10 +186,10 @@ T2 and T3 adversaries — not for T4.
 │  │  Crypto desktop app                                      │  │
 │  │  ├─ React webview ←── IPC ──→ Tauri Rust backend         │  │
 │  │  ├─ SQLCipher DB on disk (encrypted at rest)             │  │
-│  │  └─ Embedded SMP server (listens on Tor Hidden Service)  │  │
+│  │  └─ Gotham client (Sphinx packets over Noise XK / QUIC)  │  │
 │  └──────────────────────────────────────────────────────────┘  │
 │                              │                                 │
-│                              │ Tor SOCKS5 (or direct, or Gotham) │
+│                              │ Gotham mixnet (sole transport)  │
 │                              ▼                                 │
 └──────────────────────────────┼─────────────────────────────────┘
                                │
@@ -189,8 +198,10 @@ T2 and T3 adversaries — not for T4.
 ┌──────────────────────────────┼─────────────────────────────────┐
 │  TRANSPORT LAYER             ▼                                 │
 │  ┌──────────────────────────────────────────────────────────┐  │
-│  │  Tor v3 (default today)  │  Gotham (pre-alpha)            │  │
-│  │  Lokinet (optional)      │  Direct (testing only)         │  │
+│  │  Gotham mixnet — Sphinx v0.2 packets, Poisson mixing,    │  │
+│  │  continuous cover traffic, self-forming signed directory.│  │
+│  │  Live network is 3 relays on a single /16: NOT yet       │  │
+│  │  route-building (see §8.2). Direct mode = testing only.  │  │
 │  └──────────────────────────────────────────────────────────┘  │
 └──────────────────────────────┼─────────────────────────────────┘
                                │
@@ -247,44 +258,72 @@ the local DB encryption protects what stays.
   the OS's memory-zeroization guarantees and on physical access
   considerations.
 
-### 5.3 Transport / metadata layer (when Gotham is used)
+### 5.3 Transport / metadata layer (Gotham)
+
+> **Honest qualifier.** Everything in this subsection describes what the
+> Gotham design resists **once a live network spanning multiple /16s
+> exists and an external audit has run**. Today it is not real-world
+> proven: the live network is 3 relays on a single /16, the path-diversity
+> guard correctly refuses to build a route, and **no real message has yet
+> transited the mixnet** (see §8.2). These are design properties, not
+> field-validated operational guarantees.
 
 - **Passive observation of who talks to whom** → resisted by sealed-
   sender envelopes (sender identity is inside the AEAD).
 - **Passive correlation of flow timing** → resisted by Loopix-style
   Poisson mixing (per-hop random delay drawn from an exponential
-  distribution).
+  distribution). Real user sends are routed through the cover-traffic
+  queue, so they are indistinguishable from cover on the wire.
 - **Compromise of a single relay** → resisted by the multi-hop
   construction. A single relay sees only its predecessor and its
   successor; no relay sees the full path.
+- **Per-hop payload tagging** → defeated by a LIONESS wide-block
+  non-malleable PRP (Anderson–Biham, 4 rounds) over the payload, which
+  replaced the earlier XOR / per-hop-AEAD branch construction.
+- **Malicious upstream substitution of X25519 blinding** → low-order
+  X25519 points are now rejected (was the old M-1 Sphinx low-order-points
+  finding; see §8.2).
 - **Replay attacks at the network layer** → caught by a 5-minute
-  HMAC-based replay cache per relay.
+  gamma-MAC replay cache per relay.
 - **Packet-size fingerprinting** → eliminated by fixed-size 2048-byte
-  packets and cover traffic. All Gotham packets look identical on the
-  wire.
+  Sphinx v0.2 packets and continuous cover traffic. All Gotham packets
+  look identical on the wire.
+- **Weak / colluding path selection** → path selection enforces global
+  diversity: distinct operator and distinct network (/16 for IPv4, /48
+  for IPv6) across the whole path, with entry not equal to exit.
 - **Quantum decryption of recorded mixnet traffic** → resisted by the
   hybrid X25519 + ML-KEM-768 KEM at each hop.
 
-### 5.4 Server / federation layer
+### 5.4 Relay / mailbox layer
+
+There is no central federation server. The layer is the Gotham relay pool,
+the store-and-forward mailbox (deposit done over the mixnet; recipients
+spread across mailbox hosts via HRW hashing), and the peer-to-peer gossip
+transport by which relays discover each other, anchored by k-of-n authority
+attestation.
 
 - **Compromise of a single relay operator** → cannot decrypt traffic,
   cannot deanonymise senders (sealed-sender). Can drop traffic for the
   queues it hosts (availability, not confidentiality).
+- **Compromise of a single mailbox host** → SURB (single-use reply
+  blocks) let a recipient fetch queued mail without revealing which queue
+  is theirs; HRW spreading means one host holds only a slice of recipients.
 - **Subpoena of a single relay operator's logs** → reveals only the
-  encrypted queue contents and the immediate neighbours' IPs. The
-  re-encryption layer means even encrypted queue contents differ from
-  what the sender produced.
-- **Server-side tampering with stored messages** → caught by the
-  AEAD authentication on the message keys (the server cannot forge a
-  valid ciphertext without the message key, which it never has).
+  encrypted, re-encrypted queue contents and the immediate neighbours'
+  IPs. The per-hop re-encryption means even the encrypted queue contents
+  differ from what the sender produced.
+- **Relay-side tampering with stored messages** → caught by the AEAD
+  authentication on the message keys (a relay cannot forge a valid
+  ciphertext without the message key, which it never has).
 
 ### 5.5 Identity layer
 
 - **Forgery of a contact's identity** → resisted by Ed25519 signature
-  on the signed prekey at the X3DH bundle level. The first contact
-  with a peer is still subject to TOFU (trust on first use); after the
-  first successful exchange, the identity is pinned and a mismatch
-  raises a security alert.
+  on the signed prekey at the X3DH bundle level, plus a Signal-style
+  60-digit **safety number** per contact (forced and persisted, with a
+  verified flag). If the pinned identity key later changes, the app
+  raises a MITM security alert. Identity-key rotation and revocation are
+  implemented end-to-end.
 - **Identity-key disclosure under coercion** → partially mitigated by
   the ephemeral nature of session keys (X3DH consumes one-time prekeys;
   ratchet keys are forward-secret). Long-term identity disclosure
@@ -310,10 +349,12 @@ rely on this software — or on any deployed software available today.
 If more than ~60% of the active Gotham relay pool is hostile (operated
 by, or coerced by, the same adversary), the multi-hop anonymity
 guarantee degrades. This is a known limitation of all mixnet designs.
-The mitigation is **operational**: route through a diverse pool of
-relay operators across jurisdictions, and reject paths that don't span
-at least two trust domains. This logic is documented but not yet
-implemented in the path-selection code (see `THREAT-MODEL.md` §8).
+The mitigation is partly enforced in code: path selection now requires
+a distinct operator and a distinct network (/16 for IPv4, /48 for IPv6)
+across the whole path, with entry ≠ exit. What remains **operational** is
+ensuring the live relay pool is actually diverse across jurisdictions —
+today it is not (3 relays, single /16), which is precisely why no route
+builds yet (see §8.2).
 
 ### 6.3 Endpoint compromise
 
@@ -360,10 +401,12 @@ name and the SSO-bound directory mapping are.
 
 ### 6.8 The 1 open upstream CVE (RSA Marvin)
 
-`rsa` 0.9.10 is pulled in as a transitive dependency of `openidconnect`
+`rsa` is pulled in as a transitive dependency of `openidconnect`
 for the SSO flow. RUSTSEC-2023-0071 (Marvin Attack) describes a timing
 side-channel that could in theory recover RSA keys over a sustained
-MitM observation. **No upstream fix is available** as of 2026-05-25.
+MitM observation. **No upstream fix is available** as of 2026-07-03. The
+path is unreachable in practice and the risk is documented and accepted
+(the single accepted risk of the project).
 
 Reachability is limited:
 - Only enterprise-tier SSO touches this code path.
@@ -392,15 +435,17 @@ must do for the threat model to hold.
    target. Use a passphrase ≥ 20 characters if you can type it.
 3. **The device's full-disk encryption is enabled.** SQLCipher is
    defense in depth; FDE is the first line.
-4. **Tor or Gotham is enabled.** The "direct" transport mode is for
-   testing only and exposes IP-level metadata.
+4. **Gotham is the transport.** Gotham is the sole transport; the
+   "direct" transport mode is for testing only and exposes IP-level
+   metadata.
 5. **OS-level updates are applied.** Tauri rides on the system's
    WebView (WebKitGTK on Linux, WebView2 on Windows, WebKit on macOS).
    OS-level WebView vulnerabilities affect the app.
-6. **The user verifies fingerprints out-of-band.** TOFU is the default
-   trust-establishment mode. For high-stakes contacts, verify the
-   contact's Ed25519 fingerprint through a separate channel (in
-   person, by reading it over an authenticated voice call).
+6. **The user verifies safety numbers out-of-band.** Each contact has a
+   forced, persisted 60-digit safety number. For high-stakes contacts,
+   compare it through a separate channel (in person, by reading it over
+   an authenticated voice call) and mark the contact verified. A later
+   pinned-key change raises a MITM alert.
 7. **The user does not run as root / administrator.** Privilege
    separation is part of the host-level threat model.
 
@@ -408,66 +453,74 @@ must do for the threat model to hold.
 
 ## 8. Known gaps in the current implementation
 
-This list is **exhaustive** as of 2026-05-25. Anything not on this list
+This list is **exhaustive** as of 2026-07-03. Anything not on this list
 is *implemented* — but "implemented" still means "not third-party
 audited".
 
 ### 8.1 Application
 
-- **Multi-device sync (B10)** — single-device today. A user with two
-  laptops cannot share a contact list and message history between them.
-  Sprint plan in `B10-MULTI-DEVICE-SPRINT.md`.
-- **Audio / video calls (B12)** — WebRTC signalling is scoped but not
+- **Multi-device sync** — single device per identity for end users
+  today. The underlying primitive has landed (SAS-verified device link +
+  encrypted account-bundle transfer), but activation is deliberately
+  **gated / not shipped**, so a user with two laptops cannot yet share a
+  contact list and message history between them.
+- **Audio / video calls** — WebRTC signalling is scoped but not
   shipped. Deferred to a post-GA release.
-- **Mobile clients** — iOS and Android are not started. Desktop only.
+- **Mobile clients** — iOS and Android are not started. Desktop only
+  (Linux / macOS / Windows).
 - **Duress / deniable mode** — not implemented (see §6.4).
+- **SCIM 2.0 provisioning and active/passive HA replication** —
+  enterprise-tier roadmap, not delivered.
 
 ### 8.2 Mixnet
 
-- **Production relay deployment** — `crypto-server` has never been
-  deployed in production. Local-development only. The first relay
-  deployment is gated on the third-party audit.
-- **Path-selection diversity logic** — the current implementation
-  picks 3-5 hops uniformly from the relay pool. A jurisdiction-aware
-  selection algorithm (reject paths that don't cross at least 2 trust
-  domains) is documented in `GOTHAM-CHECKLIST.md` Track A.6 but not
-  yet enforced.
-- **v0.1 Sphinx slot leak** — the header carries a 1-byte hop_index in
-  cleartext that leaks the hop's position in the path (bounded by
-  MAX_HOPS = 5). The v0.2 shift-and-pad construction removes this
-  leak; v0.1 is documented as a known limitation.
-- **v0.1 small-order X25519 points** — `blind_alpha` does not reject
-  the 8 small-order points of the Montgomery curve. A malicious
-  upstream relay could substitute α to predictable shared secrets for
-  downstream hops. Documented in `SECURITY-AUDIT.md` finding M-1.
-  v0.2 fixes this.
+- **Live network is not yet real-world proven** — a directory authority
+  plus 3 relays are online, but all 3 sit on a single /16. The (correct)
+  path-diversity guard therefore refuses to build a route, so **no real
+  message has yet transited the live network**. Network-level anonymity
+  becomes real once (a) relays exist across multiple /16s and (b) an
+  external audit has run. Until then, treat all §5.3 mixnet properties as
+  design intent, not field-validated guarantees.
+- **Path-selection diversity logic** — now enforced: distinct operator
+  and distinct network (/16 for IPv4, /48 for IPv6) across the whole path,
+  entry ≠ exit. What is missing is a live pool diverse enough to satisfy
+  it (see the item above), not the enforcement code.
+- **Small-order X25519 points** — now **rejected** (this fixes the old
+  M-1 Sphinx low-order-points finding: a malicious upstream relay can no
+  longer substitute α to force predictable shared secrets downstream).
 - **Cover-traffic budget tuning** — the Loopix-style cover traffic is
-  implemented but the rate is hard-coded. A production deployment will
-  need per-user budget tuning and a feedback loop on observed mix
-  fullness.
+  implemented (and now carries real user sends), but the rate is
+  hard-coded. A production deployment will need per-user budget tuning and
+  a feedback loop on observed mix fullness.
+- **Pluggable transports (obfs4 / meek-CDN fronting)** — **not shipped**;
+  planned only. The real Gotham link layer is Noise XK over QUIC.
 
 ### 8.3 Tests & audit
 
-- **Coverage at 63.56% — target 80%** before the project claims
-  production readiness. The gap is concentrated in `crypto-server`
-  (server never deployed, low test pressure) and the Tauri command
-  layer (Playwright UI tests not yet wired — Track C.5).
-- **No third-party audit yet.** Self-audit completed
-  2026-05-25 (`SECURITY-AUDIT.md`) — 10 patches landed, 3 CVE closed.
-  Independent audit (Trail of Bits / NCC / Quarkslab / Synacktiv-class)
-  is the gating event for the production-readiness claim.
-- **Fuzz harness partial.** 5 targets on the `gotham-v0.2` branch; not
-  yet merged to `main` and not yet run for the standard 24 h continuous
-  pass per target.
-- **Formal verification partial.** 6 Kani proofs scaffolded on
-  `gotham-v0.2`; the proof obligations need to be widened to cover
-  `sealed_unseal` and the ratchet invariants.
+- **Codebase size.** ~31,919 lines of Rust, with 338 automated test
+  functions; the workspace `cargo test` suite is green.
+- **Coverage target 80% before GA.** The last measured figure was
+  63.56% on the 2026-05-25 snapshot — treat that number as **stale** and
+  refresh it from the coverage tracker before quoting it. 80% is the
+  pre-GA target, not a current measurement. The gap is concentrated in
+  the Tauri command layer (Playwright UI tests not yet wired).
+- **No third-party audit yet.** Only an internal audit completed
+  2026-05-25 (`SECURITY-AUDIT.md`), plus several multi-agent adversarial
+  reviews whose confirmed findings were all fixed. An independent
+  external audit (Trail of Bits / NCC / Quarkslab / Synacktiv-class) has
+  **not** happened and is the gating event for the production-readiness
+  claim.
+- **Fuzz harness partial.** Fuzz targets exist but are not yet run for
+  the standard 24 h continuous pass per target.
+- **Formal verification partial.** Kani proofs are scaffolded; the proof
+  obligations need to be widened to cover `sealed_unseal` and the ratchet
+  invariants.
 
 ### 8.4 Operations
 
 - **No published PGP key** for security disclosures. The `SECURITY.md`
   email channel is real but not cryptographically authenticated.
-- **No published .onion v3 mirror** for sensitive sources. Planned but
+- **No published anonymous mirror** for sensitive sources. Planned but
   not deployed.
 - **No public CI run** of `cargo audit` on a pinned schedule. Done
   manually pre-release; CI integration is on the roadmap.
@@ -510,15 +563,18 @@ the audit lands.
 | Latency target | 800-2000 ms median | 100-300 ms target |
 | Mixing | None (low-latency) | Loopix Poisson |
 | Post-quantum | No | Hybrid X25519 + ML-KEM-768 |
-| Cover traffic | None | Configurable |
-| Relay pool | ~7000 volunteer relays | 0 deployed |
-| Audit history | 20 years | None |
+| Cover traffic | None | Continuous |
+| Relay pool | ~7000 volunteer relays | 3 online (single /16, no route builds) |
+| Audit history | 20 years | Internal only, no external audit |
 
 **Honest reading**: Tor is the production-ready solution today. Gotham
 is a design that targets a different optimisation point (latency +
-metadata + PQ) but has not yet been operationally validated. Crypto
-uses Tor as the production transport today; Gotham is enabled in dev
-mode behind a feature flag.
+metadata + PQ) but has not yet been operationally validated. Crypto ships
+Gotham as its **sole** transport (Tor, Lokinet and the SMP federation
+server were removed in v0.7); but because the live network is only 3
+relays on a single /16, the path-diversity guard refuses to build a route
+and no real message has yet transited it. Network anonymity is therefore
+theoretical until a multi-/16 network and an external audit exist.
 
 ---
 
@@ -535,7 +591,9 @@ public documentation can describe it as "production-ready":
    (Gotham hybrid KEM, X3DH key derivation, ratchet state machine) by
    a second implementation team. This may be informal (a research
    group, a sister project) but must be documented.
-3. **Coverage ≥ 80%** across the workspace (currently 63.56%).
+3. **Coverage ≥ 80%** across the workspace (target; the last measured
+   figure was a stale 63.56% on the 2026-05-25 snapshot — refresh from
+   the tracker before quoting).
 4. **All TODO items in this threat model § 8 closed**, with the
    exception of items explicitly marked as accepted risks.
 5. **First production relay** deployed and running for ≥ 90 days
@@ -555,8 +613,9 @@ omit conditions from this list to bring the date forward.
 |---|---|---|
 | 0.1 | 2026-04-12 | Initial scaffold (Gotham-only, predecessor of this file) |
 | 0.5 | 2026-05-23 | Project-wide expansion, threat actor tiers |
-| 0.7 | 2026-05-25 | Post-audit revision (3 CVE closed, accepted-risk documented) |
+| 0.7 | 2026-05-25 | Post-audit revision (accepted-risk documented) |
+| 0.7 | 2026-07-03 | Gotham-only transport (Tor/Lokinet/SMP/federation server removed); safety-number verification; low-order points rejected; live-network-not-yet-proven qualifier; metrics refreshed |
 
 This document is reviewed every quarter and after every CVE event
 that affects the deployed dependency tree. The next scheduled review
-is 2026-08-25.
+is 2026-10-03.

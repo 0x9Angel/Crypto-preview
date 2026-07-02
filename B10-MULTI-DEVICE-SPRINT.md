@@ -1,19 +1,41 @@
 # B10 — Multi-Device Sync · Sprint Plan
 
-**Status:** scheduled (post-seed close, Q2-Q3 2027 window).
+**Status:** primitive landed (SAS-verified device link + encrypted account-bundle
+transfer); full activation deliberately GATED — see §0. Remaining phases below are
+gated future work targeting the post-seed close, Q2-Q3 2027 window.
 **Estimated duration:** ~4 weeks calendar · 1 design + 2 implementation + 1 review.
 **Estimated budget:** dev time + ~15 k€ third-party crypto audit gate.
 **Lead:** TBD (Project Lead until a cryptographer-in-residence is hired).
-**Last reviewed:** 2026-05-25.
+**Last reviewed:** 2026-07-03.
+
+---
+
+## 0 · Current state (2026-07-03)
+
+The multi-device **primitive is built**, not merely planned:
+
+- **SAS-verified device link** — an out-of-band short-authentication-string
+  ceremony authenticates the joining device.
+- **Encrypted account-bundle transfer** — the account bundle is sealed with
+  AES-256-GCM under an HKDF-salted key, with the SAS bound into the AAD.
+
+Full activation is **deliberately gated / not shipped**: linking a second device
+expands the attack surface (a second active device doubles the
+steal-the-master-password blast radius, and end-user activation is held back until
+the remaining phases below — per-device keys, account-secret transfer, fanout,
+external audit — land). **One device per identity remains true for end users
+today.** The phases in this plan describe the gated future work that carries the
+primitive from "landed" to "activated".
 
 ---
 
 ## 1 · Why this is a sprint, not a session
 
-B10 is the single Track-B item that cannot safely ship inside a coding
-session. The reason is not implementation effort — it is **protocol
-design risk**. A naive multi-device implementation introduces a
-catalogue of well-documented failure modes:
+B10's link/transfer **primitive has landed in a coding session** (see §0),
+but flipping it on for end users cannot safely ship the same way. The reason
+is not implementation effort — it is **protocol design risk**. A naive
+multi-device *activation* introduces a catalogue of well-documented failure
+modes:
 
 - **Ratchet state forks** when two devices decrypt the same message
   concurrently → out-of-order decryption + permanent loss of forward
@@ -91,6 +113,14 @@ review externally, then ship". This plan reflects that.
 ---
 
 ## 4 · Phase 2 — Implementation (10-12 working days)
+
+> Note (2026-07-03): the landed primitive (§0) already implements the device
+> link as a **SAS-verified ceremony** plus an **encrypted account-bundle
+> transfer** (AES-256-GCM, HKDF-salted key, SAS bound into the AAD), not the
+> SPAKE2 path sketched below. The SPAKE2 references in this table are the
+> original design option (D1) and remain open design work; treat the rows below
+> as the remaining gated implementation plan, reconciled against what already
+> shipped.
 
 ### 4.1 Crate-level work plan
 
@@ -179,10 +209,13 @@ branch into `main`.
 - The REPLICATION protocol (D3) and conflict resolution (D4).
 - The UNLINK flow + post-unlink key hygiene.
 
-NOT in scope (already audited / out of this sprint):
+NOT in scope (reviewed separately / out of this sprint):
 
-- The underlying Gotham mixnet (separately audited).
-- The Signal-style E2E layer (Signal protocol — audited).
+- The underlying Gotham mixnet (covered by its own review track — internal
+  audit 2026-05-25 plus adversarial reviews; a first external audit is still
+  future work, not yet completed).
+- The Signal-style E2E layer (X3DH + Double Ratchet — the upstream Signal
+  protocol is well-studied; our integration has had no external audit yet).
 
 ### 6.2 Engagement model
 

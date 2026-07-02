@@ -3,10 +3,10 @@
 > Vue exhaustive de tout ce qui reste pour amener l'application à
 > 100 % fonctionnelle et opérationnelle en production entreprise.
 > `GOTHAM-CHECKLIST.md` couvre le protocole en détail ; ce fichier
-> couvre **tout le reste** (produit, serveur, tests, infra, identité,
+> couvre **tout le reste** (produit, tests, infra, identité,
 > compliance, doc, légal, marketing, distribution, ops).
 
-**Last updated:** 2026-05-25
+**Last updated:** 2026-07-03
 **Project lead:** Angel
 **Target GA enterprise:** Q2 2028
 
@@ -14,11 +14,11 @@
 branch, scaffold, or partial). `[ ]` = not started. `[!]` = blocker
 identified, no path yet.
 
-**Project size baseline (2026-05-25):**
-- 24 983 lignes Rust · 6 106 lignes TS/TSX
-- 11 crates workspace · 196 tests passent
-- 15 migrations schema · Tauri 2 + React 19
-- 4 workflows CI · 0 audit externe · 0 relais Gotham en production
+**Project size baseline (2026-07-03):**
+- ~31 919 lignes Rust · 6 106 lignes TS/TSX
+- workspace Gotham-only (crypto-server / crypto-cli supprimés en v0.7) · 338 tests passent
+- migrations schema · Tauri 2 + React 19
+- 4 workflows CI · 0 audit externe · 1 directory authority + 3 relais Gotham en ligne (routage bloqué — voir Track 5.1)
 
 ---
 
@@ -28,13 +28,13 @@ identified, no path yet.
 
 - [x] Workspace UI v2 (Tauri 2 + React 19 + Tailwind v4)
 - [x] Settings → Profile → Identity panel
-- [x] Settings → Transport selector (Tor / Lokinet / Gotham)
+- [x] Settings → Transport panel (Gotham — transport unique depuis v0.7 ; Tor / Lokinet / SMP retirés)
 - [x] GothamPanel (init / status / send / set_contact_pk)
 - [x] Dev 3-relay self-loop bootstrap helper
 - [x] Updater badge (passive probe + dot on rail button)
 - [x] **1.1.1** Onboarding wizard — 5-step product tour shown on first unlock (Welcome / Privacy / Transport / First contact / Ready). Modal with Skip + Back/Next + Finish. `set_seen_onboarding` / `get_seen_onboarding` Tauri commands persist the dismissed flag so the wizard never re-appears unless the database is wiped.
 - [x] **1.1.2** Recovery flow UX — **two-path recovery**: (a) **device-loss** via encrypted SQLCipher export/import (`export_db` / `import_db` + Settings UI + backup-age nag); (b) **forgotten master password** via 32-hex recovery code (`crypto-store/src/recovery.rs` — Argon2id-derived wrapping key seals the SQLCipher operating key in `recovery.json` sidecar). On profile creation a `RecoverySetupModal` shows the code with copy + "I have saved it" gate. On the login screen a "Forgot password? Use recovery code" link opens `RecoverFlowModal` calling `recover_account(code, new_password)` (PRAGMA rekey + re-seal envelope under the same code). 6 unit tests on the store side (parse format, seal/open round-trip, wrong-code AEAD reject, tampered envelope reject, entropy sanity).
-- [~] **1.1.3** Multi-device sync UX — **scaffold shipped + sprint planned**: schema migration v17 adds `device_registry` table (device_id UUIDv4, name, platform, added_at, is_local, last_seen_at), Tauri commands `list_devices` / `rename_device`, Settings → Devices panel listing the local device with rename action + clear "pairing on the roadmap" disclosure. 3 new unit tests on the store side. **Pairing flow + ratchet-state sync are deliberately NOT in this scaffold** — they need a dedicated protocol design + threat-model review (multi-device = new attack surface). Full implementation sprint planned in [B10-MULTI-DEVICE-SPRINT.md](B10-MULTI-DEVICE-SPRINT.md) — ~4 weeks calendar (1 design + 2 implementation + 1 review) gated on the broader Gotham audit, earliest start Q3-Q4 2027.
+- [~] **1.1.3** Multi-device sync UX — **primitive landed, activation gated**: schema migration `device_registry` table (device_id UUIDv4, name, platform, added_at, is_local, last_seen_at), Tauri commands `list_devices` / `rename_device`, Settings → Devices panel. Beyond the registry scaffold, the device-linking **primitive is built end-to-end**: SAS-verified device link + encrypted account-bundle transfer between devices. Activation is **deliberately gated / not shipped** — so for end users **one device per identity today** still holds. Turning the primitive on for users needs the broader Gotham audit + a dedicated threat-model sign-off (multi-device = new attack surface); earliest activation Q3-Q4 2027.
 - [x] **1.1.4** File attachments UI — `send_file` async Tauri command + `FileDisplay` React component + attach button in chat composer + base64 round-trip + progress events. Was wired in earlier work, now formally cocked.
 - [x] **1.1.5** Voice messages — MediaRecorder (`audio/webm;codecs=opus`) → blob → base64 → `send_file` (rides on the B4 file pipeline). Mic button in chat composer: click to record, click to stop & send, right-click to cancel. Receiver renders inline `<audio controls>` via the extended `FileDisplay` component (audio MIME branch).
 - [—] **1.1.6** Video / voice calls — **deferred by design — out of v1 scope** per the original product pitch. The v1 spec explicitly excludes synchronous calls; this is a product decision, not a delivery gap. Requires WebRTC + STUN/TURN + SRTP key agreement + jitter buffer + echo cancellation + UI, each its own engineering body of work. Voice messages (1.1.5) cover the asynchronous-audio use case for v1. Scheduled for a v2 release after enterprise GA.
@@ -44,6 +44,9 @@ identified, no path yet.
 - [x] **1.1.10** Search across history — FTS5 trigram index (schema migration v16) + `search_messages_global` CRUD + `search_global` Tauri command + Cmd/Ctrl+K global search modal in the chat UI. 4 new tests (cross-conversation, deleted-exclusion, empty-query, FTS5-injection-safe).
 - [x] **1.1.11** Export conversation — Ed25519-signed JSONL (`crypto-tauri/src-tauri/src/export.rs`, `export_conversation` Tauri command, Export icon in chat header, 6 tests passing)
 - [x] **1.1.12** Notification settings — quiet hours window (`set_quiet_hours` / `get_quiet_hours` Tauri commands + UI in Settings, cross-midnight handling, 5 unit tests) + per-contact mute (`set_contact_muted` / `get_contact_muted` + Mute checkbox in contact profile panel + check in OS notification emission block).
+- [x] **1.1.13** Identity verification — Signal-style **safety number** (60-digit), forced + persisted, with a `verified` flag per contact and an **alert on pinned-key change** (MITM detection). Replaces the earlier TOFU server-key-pinning wording (there is no server to pin anymore).
+- [x] **1.1.14** Identity-key rotation & revocation — implemented end-to-end (rotate local identity key, publish + propagate revocation, peers surface the pinned-key-change alert on next contact).
+- [x] **1.1.15** Encrypted DB backup / restore — SQLCipher AES-256 export/import with a **pre-migration snapshot** taken before schema upgrades. Backs the two-path recovery flow (1.1.2).
 
 ### 1.2 Accessibility & i18n
 
@@ -77,38 +80,42 @@ identified, no path yet.
 ## TRACK 2 — PROTOCOLE (Gotham)
 
 → Voir [GOTHAM-CHECKLIST.md](GOTHAM-CHECKLIST.md) pour le détail.
-Statut agrégé 2026-05-25 :
+Statut agrégé 2026-07-03 (Sphinx v0.2 · X25519 + ML-KEM-768 hybrid KEM · Noise XK sur QUIC · LIONESS payload non-malléable · diversité globale opérateur + réseau /16-/48) :
 
 | Phase | Statut |
 |-------|--------|
-| 1 Sphinx packet | shipped (main) + A1.8 folded-KEM sur `gotham-v0.2` |
-| 2 Relay binary | shipped |
-| 3 Directory | shipped (main) + A3.7 anonymous refresh sur `gotham-v0.2` |
+| 1 Sphinx packet | shipped — paquets fixes 2048 o, KEM hybride post-quantique par saut |
+| 2 Relay binary | shipped — points X25519 low-order rejetés (fixe M-1) |
+| 3 Directory | shipped — self-forming signed directory + directory authority (enroll / heartbeat / proof-of-possession) |
 | 4 App integration | shipped (7/7 sous-items) |
-| 5 Cover traffic | desktop · mobile bits sur 1.3 |
-| 6 Pluggable transports | A6.1 main · A6.2–A6.5 sur `gotham-v0.2` |
-| 7 Hardening | partiel main · fuzz + Kani + dudect sur `gotham-v0.2` |
-| 8 Push relay | scaffolds sur `gotham-v0.2` |
+| 5 Cover traffic | desktop — Loopix Poisson + cover continue (envois réels routés dans la file cover) · mobile bits sur 1.3 |
+| 6 Pluggable transports | **planned / not shipped** — obfs4 & meek-CDN fronting jamais livrés ; link layer réel = Noise XK sur QUIC |
+| 7 Hardening | partiel main · fuzz + Kani + dudect à merger |
+| 8 SURB + mailbox | SURB (single-use reply blocks) → fetch mailbox anonyme · Gotham mailbox store-and-forward offline (dépôt over-mixnet, HRW hashing des hôtes) · gossip P2P k-of-n attestation |
 
-**Prochain gate Gotham :** audit externe avant merge `gotham-v0.2 → main`.
+**Prochain gate Gotham :** audit externe indépendant + réseau live multi-/16 avant de déclarer l'anonymat réseau prouvé.
 
 ---
 
-## TRACK 3 — SERVER (crypto-server fédération)
+## TRACK 3 — SERVEUR (retiré en v0.7)
 
-- [x] `crypto-server` crate (2 560 LOC)
-- [x] `Dockerfile` + `nullchat-server.service` (systemd)
-- [x] `install-relay.sh` script
-- [ ] **3.1** Déploiement effectif sur 1 instance test (jamais déployé à date)
-- [ ] **3.2** Configuration HA / load balancer
-- [ ] **3.3** Clustering inter-server (A6 enterprise tier)
-- [ ] **3.4** Multi-tenant (workspace isolation)
-- [ ] **3.5** Quotas par tenant (CPU / RAM / storage)
-- [ ] **3.6** Monitoring Prometheus (counters-only, no PII)
-- [ ] **3.7** Backup / restore procédures
-- [ ] **3.8** Key rotation procedures documentées
-- [ ] **3.9** Graceful shutdown verified under load
-- [ ] **3.10** Documentation déploiement entreprise
+> Le serveur de fédération SMP (`crypto-server`) et le `crypto-cli` ont été
+> **supprimés en v0.7 (2026-05-30)** en même temps que Tor / Lokinet / SMP.
+> Gotham est désormais le transport unique ; il n'y a plus de serveur à
+> déployer. Le store-and-forward hors-ligne passe maintenant par le **Gotham
+> mailbox** (dépôt over-mixnet, HRW hashing des hôtes) — voir Track 2 phase 8.
+> Les items HA / multi-tenant / quotas ci-dessous sont conservés comme
+> **roadmap enterprise-tier** applicable à l'infra relais/mailbox, pas à un
+> serveur de fédération.
+
+- [ ] **3.1** HA active/passive (réplication) — roadmap enterprise-tier
+- [ ] **3.2** Multi-tenant (workspace isolation) — roadmap enterprise-tier
+- [ ] **3.3** Quotas par tenant (CPU / RAM / storage) — roadmap enterprise-tier
+- [ ] **3.4** Monitoring Prometheus (counters-only, no PII) — infra relais/mailbox
+- [ ] **3.5** Backup / restore procédures — infra relais/mailbox
+- [ ] **3.6** Key rotation procedures documentées — directory authority + relais
+- [ ] **3.7** Graceful shutdown verified under load — relais/mailbox
+- [ ] **3.8** Documentation déploiement entreprise
 
 ---
 
@@ -116,15 +123,15 @@ Statut agrégé 2026-05-25 :
 
 ### 4.1 Tests unitaires & intégration
 
-- [x] 196 tests total project (61 gotham + 27 relay + 3 cross-crate + 105 reste)
+- [x] **338 fonctions de test** total project, workspace `cargo test` vert
 - [x] `tests/cross_crate_e2e.rs` cross-crate gotham ↔ relay (3 tests)
 - [x] `crypto-tests/tests/integration.rs` x3dh / ratchet (589 LOC)
 - [x] **4.1.1** Tests d'intégration `crypto-tauri` ↔ `crypto-store` (DB round-trips) — `crypto-tests/tests/store_integration.rs` (7 tests : profile keys round-trip, full conversation lifecycle, FTS5 cross-conversation search, settings set/get round-trip, device registry upsert+list, B2 recovery chain, full migration ladder).
-- [x] **4.1.2** Tests d'intégration `crypto-tauri` ↔ `crypto-server` (federation) — `crypto-tests/tests/server_integration.rs` (6 tests : Noise XX handshake, create_queue distinct IDs, send→get round-trip, GET on empty queue returns None, MAX_MSG_SIZE enforced, multi-sender same queue). Le serveur tourne in-process sur un port éphémère 127.0.0.1.
+- [x] **4.1.2** Tests d'intégration transport Gotham (SURB + mailbox) — le serveur de fédération `crypto-server` ayant été retiré en v0.7, ces tests couvrent désormais le chemin Gotham : dépôt/relève mailbox anonyme via SURB (single-use registry, receive handler SURB-aware, poll-via-SURB avec fallback direct) et un e2e applicatif. In-process sur ports éphémères 127.0.0.1.
 - [ ] **4.1.3** Tests d'intégration `crypto-tauri` ↔ `crypto-gotham` (full pipeline)
 - [x] **4.1.4** Tests de migration schema v1 → v17 — `crypto-store/src/db.rs` mod migration_tests (6 tests : v1 baseline schema, v2 preserves v1 data, v3 settings + pending_invites, full ladder v1→v17 with fixture preservation, v16 FTS5 trigger sync on insert/update/delete, v17 device_registry idempotency).
 - [ ] **4.1.5** Tests UI Playwright/WebDriver (golden path scénarios)
-- [x] **4.1.6** Coverage report — `cargo llvm-cov` wired via `scripts/coverage.sh` (summary / html / lcov modes). Baseline 2026-05-25 : **63.56 %** line coverage workspace (hors tauri-app et licensor). Highlights : sealed.rs 99 % · header.rs 98 % · hybrid.rs 98 % · directory.rs 94 % · recovery.rs 92 %. Gap principal : crypto-server (jamais déployé). Doc complète dans [docs/COVERAGE.md](docs/COVERAGE.md). Cible 80 % atteignable via 4.1.1 (+10 %) et 4.1.2 (+5 %).
+- [x] **4.1.6** Coverage report — `cargo llvm-cov` wired via `scripts/coverage.sh` (summary / html / lcov modes). **Snapshot périmé (2026-05-25) : 63.56 % line coverage** workspace (hors tauri-app et licensor) — chiffre à rafraîchir depuis le tracker après le retrait v0.7 de crypto-server/crypto-cli et l'ajout SURB/mailbox. Highlights de l'époque : sealed.rs 99 % · header.rs 98 % · hybrid.rs 98 % · directory.rs 94 % · recovery.rs 92 %. Cible pré-GA : **80 %** (objectif, pas une mesure actuelle). Doc complète dans [docs/COVERAGE.md](docs/COVERAGE.md).
 - [x] **4.1.7** Snapshot tests sur les composants React critiques — Vitest + @testing-library/react + jsdom configurés via [vite.config.ts](crypto-tauri/vite.config.ts). 22 tests dans [App.test.tsx](crypto-tauri/src/App.test.tsx) : renderMarkdown (parser inline), PresenceDot (mapping couleur), EmojiPicker (8 emojis fixés), FileDisplay (3 branches image/audio/download), getRtcConfig (helper WebRTC). Snapshots dans `src/__snapshots__/`.
 
 ### 4.2 Fuzz coverage
@@ -165,6 +172,13 @@ Statut agrégé 2026-05-25 :
 
 ### 4.6 Audit externe
 
+> **État réel :** aucun audit externe indépendant n'a encore eu lieu. Ce qui
+> a été fait à date = un **audit interne (2026-05-25)** plus **plusieurs revues
+> adverses multi-agents** ; les findings confirmés (dont perte de données SURB,
+> perte de messages cover, diversité IPv6, reject loopback, reset de rotation
+> du safety number, points X25519 low-order) ont **tous été corrigés**. Cela ne
+> remplace pas un audit tiers — c'est le gate ci-dessous.
+
 - [ ] **4.6.1** Quote 3 firmes : Trail of Bits · Quarkslab · Synacktiv (cible : 80-120 k€ pour audit cryptographique Gotham)
 - [ ] **4.6.2** Définir le scope d'audit (Gotham seul, Crypto seul, ou les deux)
 - [ ] **4.6.3** Préparer le dossier technique (architecture, threat model, build reproducible)
@@ -189,7 +203,8 @@ Statut agrégé 2026-05-25 :
 ### 5.1 Relais Gotham production
 
 - [x] 1 relais embarqué dans l'app Tauri (dev)
-- [ ] **5.1.1** Choisir 3+ providers diversifiés (Hetzner DE · OVH FR · Vultr · Linode)
+- [~] **Directory authority + 3 relais EN LIGNE** — mais le **routage est BLOQUÉ** : les 3 relais siègent sur un **seul /16**, donc le garde de diversité de chemin (opérateur + réseau distincts, /16 IPv4 / /48 IPv6, entry ≠ exit) refuse de construire une route. **C'est le comportement attendu, le garde fonctionne.** Conséquence honnête : **aucun message réel n'a encore transité le réseau live** → l'anonymat réseau reste **théorique** tant qu'il n'existe pas de réseau vivant couvrant plusieurs /16. **Débloquant minimal : ≥ 1 relais sur un 2ᵉ /16.**
+- [ ] **5.1.1** Choisir 3+ providers diversifiés (Hetzner DE · OVH FR · Vultr · Linode) — au moins un sur un /16 distinct pour débloquer le routage
 - [ ] **5.1.2** 1 × entry + 3 × mix + 1 × exit relais (minimum 5 nœuds)
 - [ ] **5.1.3** DNS `relay-N.gotham.<domain>` avec certs Let's Encrypt
 - [ ] **5.1.4** Déploiement binaires reproducibles (matching commit SHA)
@@ -202,7 +217,8 @@ Statut agrégé 2026-05-25 :
 
 ### 5.2 Directory authority
 
-- [ ] **5.2.1** Static-file host directory JSON (Cloudflare Pages / Netlify)
+- [x] Directory authority **en ligne** — directory self-forming signé (enroll / heartbeat / proof-of-possession liveness probe). Enrôlement via `<token>` (placeholder — jamais de vrai token en clair dans le repo).
+- [ ] **5.2.1** Durcissement hébergement + redondance de l'authority (au-delà de l'instance actuelle)
 - [ ] **5.2.2** Cron quotidien refresh `valid_after` / `valid_until`
 - [ ] **5.2.3** Clé Ed25519 authority sur YubiKey (signature offline)
 - [ ] **5.2.4** Backup clé authority (Shamir split 3-of-5)
@@ -227,8 +243,8 @@ Statut agrégé 2026-05-25 :
 
 ## TRACK 6 — IDENTITY & AUTH
 
-- [x] OIDC SSO (Google Workspace, Entra ID, Okta, Auth0, Keycloak)
-- [x] SCIM 2.0 user + group provisioning
+- [x] OIDC SSO (Google Workspace, Entra ID, Okta, Auth0, Keycloak — 5 IdPs)
+- [ ] SCIM 2.0 user + group provisioning — roadmap enterprise-tier (non livré)
 - [x] Argon2id master password (12 chars, 2 character classes)
 - [x] Exponential unlock back-off (3 free → 5 s → 30 s → 2 min → 10 min)
 - [ ] **6.1** SAML 2.0 (roadmap — demandé secteur défense FR)
@@ -567,13 +583,15 @@ Vue ordonnée des blockers absolus (sans lesquels la GA n'a pas lieu).
 
 | Statut | Count |
 |--------|-------|
-| `[x]` shipped | **45** |
-| `[~]` WIP (feature branch / scaffold) | **18** |
-| `[ ]` not started | **~210** |
+| `[x]` shipped | **~45** |
+| `[~]` WIP (feature branch / scaffold / primitive gated) | **~19** |
+| `[ ]` not started | **~205** |
 | `[!]` blockers identifiés sans path | **0** |
 
-**Avancement projet global :** ~17 % shipped, ~7 % en cours, ~76 % à faire.
+**Avancement projet global :** ~17 % shipped, ~7 % en cours, ~76 % à faire (on n'arrondit pas vers le haut).
 
-L'app est **techniquement opérationnelle aujourd'hui** (code messagerie + protocole shippé sur main) mais **non commercialement opérationnelle** (zéro structure, zéro déploiement public, zéro audit, zéro client).
+La **protection du contenu (E2E : X3DH + Double Ratchet, sealed-sender, safety number)** est solide et testable aujourd'hui. En revanche l'**anonymat au niveau réseau reste théorique** : le directory authority et 3 relais sont en ligne, mais comme les 3 relais partagent un seul /16 le garde de diversité (correct) refuse de router — **aucun message réel n'a encore transité le réseau live**. L'anonymat réseau ne sera prouvé qu'une fois (a) des relais répartis sur plusieurs /16 et (b) un audit externe indépendant réalisés. Aucune garantie absolue n'est promise ; les non-goals explicites tiennent (pas de résistance à un adversaire passif global, à > 60 % de relais compromis, au malware endpoint, ni à la divulgation forcée de clés non-éphémères).
+
+L'app est **techniquement opérationnelle aujourd'hui** (code messagerie shippé, Gotham transport unique) mais **non commercialement opérationnelle** (zéro structure, zéro réseau live routable, zéro audit externe, zéro client).
 
 Le chemin de GA est clair : ~18 mois de travail séquencé, ~2,4 M€ de budget, équipe de 8-10 personnes à constituer post-seed.
