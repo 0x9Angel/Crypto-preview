@@ -6,10 +6,20 @@ attention.
 
 > **Honest preamble.**
 >
-> This repository is **currently private**. The code you are about to
-> read is **under active development** and has **not been audited by an
-> independent third party**. It has **never been deployed in
-> production**. The features you see across the documentation are at
+> **This page is out of date, and kept only as a record.** It opens by
+> saying the repository is private — on a repository that is public, and has
+> been since 2026-07. It then lists four conditions for opening the project,
+> none of which were met, while the project went ahead anyway: the Gotham
+> network is public and AGPL-3.0 at
+> [0x9Angel/gotham](https://github.com/0x9Angel/gotham), and signed installers
+> ship from
+> [0x9Angel/crypto-releases](https://github.com/0x9Angel/crypto-releases).
+> Treat the live repositories as the source of record, not this one.
+>
+> What remains true: the project has **not been audited by an independent
+> third party**, and as of 2026-09-12 its own register holds 71 findings —
+> 46 fixed and tested, 6 reduced, **19 still open**, one of them critical.
+> The code is **under active development**. The features you see across the documentation are at
 > mixed levels of completion — track-level status is documented in
 > [`CHECKLIST.md`](CHECKLIST.md).
 >

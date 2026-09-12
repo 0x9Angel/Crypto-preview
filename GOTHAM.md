@@ -199,11 +199,31 @@ preserve fixed packet size and avoid header bloat.
 The header MAC `γ` is computed as:
 
 ```
-γ = Poly1305(k_mac, version || mode || α || α* || folded_α' || β)
+γ_i = Poly1305(k_mac_i, version || mode || hop_count || i || α || β[i] || trailer)
 ```
 
-Any in-flight modification at hop *j* by an attacker controlling hop
-*j−1* invalidates the MAC at hop *j* and the packet is dropped silently.
+> **This section previously specified `… || β`** — the MAC over the *whole*
+> routing block — and stated that any in-flight modification is caught. That is
+> not what the implementation does, and the specification was the stronger of
+> the two. `β[i]` is hop *i*'s own 64-byte slot: each hop authenticates its own
+> record and nothing else.
+>
+> **The consequence is an open critical finding.** A relay can alter a slot
+> belonging to a *later* hop without invalidating its own MAC. An entry relay
+> writes a mark into the exit's slot; the colluding exit reads it back; the
+> packet routes correctly throughout. That is a deterministic entry↔exit
+> correlation on a single packet, needing no statistics and no timing analysis.
+>
+> Two colluding relays on one path are required, so a network whose relays all
+> belong to one operator is not exposed to it — which is the situation today,
+> and the reason this is disclosed in prose rather than shipped with a working
+> proof of concept. **Closing it requires a wire-format change** (the MAC must
+> cover the suffix of β from each hop onward), and therefore a coordinated
+> relay and client rollout. It is tracked as the one critical entry in the
+> project's open-findings register.
+
+Modification of hop *i*'s own record, or of the payload, is detected at hop *i*
+and the packet is dropped silently.
 
 ### 4.4 Re-blinding
 
@@ -454,7 +474,7 @@ Detailed analysis below.
 | Passive ISP / café WiFi                  | Link encryption (Noise XK over QUIC, TLS 1.3 fallback). DPI-evasion pluggable transports are planned, not shipped |
 | Single compromised relay                 | Sealed-sender + Sphinx v0.2 onion: relay sees neither src nor dst nor content |
 | Replay attempts                          | 5-min gamma-MAC cache (§6.2)                                             |
-| Header tagging                           | γ-MAC chain in header (§4.3)                                             |
+| Header tagging                           | **NOT RESISTED** — γ covers one slot only, see §4.3. Open critical finding |
 | Payload tagging                          | LIONESS wide-block non-malleable PRP (§4.5)                              |
 | Timing correlation (small N)*            | Loopix-style Poisson delays + continuous cover traffic                   |
 | Packet-size analysis                     | Fixed 2 KB packets (Sphinx v0.2)                                         |
